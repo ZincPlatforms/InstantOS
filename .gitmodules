@@ -1,0 +1,5 @@
+[submodule "outside/limine"]
+	path = outside/limine
+	url = https://github.com/limine-bootloader/limine
+	branch = v10.x-binary
+	shallow = true
