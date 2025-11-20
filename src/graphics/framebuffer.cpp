@@ -30,7 +30,6 @@ Framebuffer::Framebuffer() {
 }
 
 Framebuffer::~Framebuffer() {
-    delete buffer;
 }
 
 void Framebuffer::putPixel(uint64_t x, uint64_t y, Color color) {
@@ -51,4 +50,12 @@ uint64_t Framebuffer::getHeight() {
 
 Color Framebuffer::getPixel(uint64_t x, uint64_t y) {
     return buffer->getPixel(x, y);
+}
+
+void* Framebuffer::getRaw(){
+    return buffer->getRaw();
+}
+
+uint64_t Framebuffer::getPitch(){
+    return buffer->getPitch();
 }

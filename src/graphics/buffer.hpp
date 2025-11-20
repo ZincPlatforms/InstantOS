@@ -14,6 +14,8 @@ class Buffer {
         uint64_t getWidth();
         uint64_t getHeight();
         Color getPixel(uint64_t x, uint64_t y);
+        void* getRaw();
+        uint64_t getPitch();
     
     private:
         uint32_t* address;

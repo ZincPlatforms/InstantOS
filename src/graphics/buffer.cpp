@@ -35,6 +35,14 @@ uint64_t Buffer::getHeight() {
     return height;
 }
 
+void* Buffer::getRaw() {
+    return (void*)address;
+}
+
+uint64_t Buffer::getPitch(){
+    return pitch;
+}
+
 Color Buffer::getPixel(uint64_t x, uint64_t y) {
     if (x >= width || y >= height) return Color{0, 0, 0};
     uint64_t pixelColor = address[y * pitch + x];
