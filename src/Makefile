@@ -32,19 +32,19 @@ C_SRC := $(shell find . -name "*.c")
 CPP_SRC := $(shell find . -name "*.cpp")
 ASM_SRC := $(shell find . -name "*.asm")
 
-OBJ := $(C_SRC:.c=.o) $(CPP_SRC:.cpp=.o) $(ASM_SRC:.asm=.o)
+OBJ := $(C_SRC:.c=.c.o) $(CPP_SRC:.cpp=.cc.o) $(ASM_SRC:.asm=.asm.o)
 
 .PHONY: all clean
 
 all: $(OBJ)
 
-%.o: %.c
+%.c.o: %.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-%.o: %.cpp
+%.cc.o: %.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-%.o: %.asm
+%.asm.o: %.asm
 	$(NASM) $(NASMFLAGS) $< -o $@
 
 clean:

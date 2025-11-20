@@ -2,14 +2,11 @@
 A rewrite of the closed source graphical x86_64 operating system
 
 # Features
-- [x] Basic booting
-- [x] Text Rendering
-- [x] GDT
-- [x] TSS
+- [x] Console
 
 # Upcoming features
-- [ ] IDT
-- [ ] Paging
+- [ ] Mouse support
+- [ ] Keyboard support
 
 # Building
 To build this OS, you need:

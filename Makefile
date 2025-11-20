@@ -31,7 +31,7 @@ ISO_OUT := $(CURDIR)/build/instant.iso
 all: dirs
 	$(MAKE) -C outside/limine CC=gcc CXX=g++ NASM=nasm
 	$(MAKE) -C src ROOTDIR=$(CURDIR)
-	$(LD) $(LD_ARCH) $(LDFLAGS) -T linker.ld -o $(KERNEL_OUT) $(shell find src -name "*.o")
+	$(LD) $(LD_ARCH) $(LDFLAGS) -T linker.ld -o $(KERNEL_OUT) $(shell find src -name "*.cc.o") $(shell find src -name "*.c.o") $(shell find src -name "*.asm.o")
 
 iso: all
 	rm -rf $(ISO_ROOT)
