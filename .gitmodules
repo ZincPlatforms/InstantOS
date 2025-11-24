@@ -3,3 +3,6 @@
 	url = https://github.com/limine-bootloader/limine
 	branch = v10.x-binary
 	shallow = true
+[submodule "outside/uacpi"]
+	path = outside/uacpi
+	url = https://github.com/uACPI/uACPI
