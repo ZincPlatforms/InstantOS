@@ -1,6 +1,6 @@
 #include "requests.hpp"
-#include <gdt/gdt.hpp>
-#include <idt/idt.hpp>
+#include <cpu/gdt/gdt.hpp>
+#include <cpu/idt/idt.hpp>
 #include <graphics/framebuffer.hpp>
 #include <graphics/console.hpp>
 
