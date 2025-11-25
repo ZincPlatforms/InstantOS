@@ -1,7 +1,12 @@
+#include "interrupt.hpp"
 #include "isr.hpp"
 #include <limine.h>
+#include <graphics/console.hpp>
 
-void (*interruptHandlers[256]) (InterruptFrame* frame) = {nullptr};
+Interrupt *interruptHandlers[256] = {nullptr};
+
+extern Framebuffer* fb;
+extern Console* console;
 
 extern "C" void exceptionHandler(InterruptFrame* frame) {
     const char* exception_names[] = {
@@ -15,40 +20,46 @@ extern "C" void exceptionHandler(InterruptFrame* frame) {
         "Hypervisor Injection", "VMM Communication", "Security", "Reserved"
     };
 
-    const char* exception_name = (frame->interrupt < 32) ? exception_names[frame->interrupt] : "Unknown";
-
-    switch (frame->interrupt) {
-        case 0x12: // machine fail
-
-        break;
-
-        case 0x0E: // Page Fault
+    if (console != nullptr) {
+        fb->clear(0x000000);
+        const char* exception_name = (frame->interrupt < 32) ? exception_names[frame->interrupt] : "Unknown";
+        console->drawText(exception_name);
+        console->drawText("\nInterrupt: ");
+        console->drawHex(frame->interrupt);
+        console->drawText("\nError Code: ");
+        console->drawHex(frame->errCode);
+        console->drawText("\nRIP: ");
+        console->drawHex(frame->rip);
+        console->drawText("\nRSP: ");
+        console->drawHex(frame->rsp);
         
-        break;
-
-        case 0x0D: // GPF
-    
-        break;
-
-        case 0x08: // Double Fault
-
-        break;
-
-        case 0x06: // Unknown Instruction
-
-        break;
+        if (frame->interrupt == 0x0E) {
+            uint64_t cr2;
+            asm volatile("mov %%cr2, %0" : "=r"(cr2));
+            console->drawText("CR2: ");
+            console->drawHex(cr2);
+        }
     }
 
     while (1);;
 }
+Interrupt::~Interrupt() = default;
 
-
-void registerInterruptHandler(uint8_t interrupt, void (*handler) (InterruptFrame* frame)) {
-    interruptHandlers[interrupt] = handler;
+void ISR::registerIRQ(uint8_t vector, Interrupt* handler) {
+    interruptHandlers[vector] = handler;
+    handler->initialize();
 }
 
 extern "C" void irqHandler(InterruptFrame* frame) {
-    if (&interruptHandlers[frame->interrupt] != nullptr) {
-        interruptHandlers[frame->interrupt](frame);
+    if (frame == nullptr) {
+        LAPIC::get().sendEOI();
+        return;
+    }
+    
+    Interrupt* handler = interruptHandlers[frame->interrupt];
+    if (handler != nullptr) {
+        handler->Run(frame);
+    } else {
+        LAPIC::get().sendEOI();
     }
 }

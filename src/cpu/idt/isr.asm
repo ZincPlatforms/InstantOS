@@ -2,6 +2,7 @@ extern exceptionHandler
 extern irqHandler
 
 %macro pushad 0
+    push rbx
     push rdx
     push rcx
     push rax
@@ -21,17 +22,21 @@ extern irqHandler
     pop rsi
     pop rdi
     pop rax
-    pop rdx      
     pop rcx
+    pop rdx      
+    pop rbx      
 %endmacro
 
 handleISR:
     pushad
+    
+    mov rdi, rsp
+    
     cld 
-    lea rdi, [rsp]
     call exceptionHandler
+    
     popad
-    add rsp, 10h 
+    add rsp, 16
     iretq
 
 %macro isrYErr 1
@@ -82,17 +87,19 @@ isrNErr 31
 
 handleIRQ:
     pushad
+    
+    mov rdi, rsp
+    
     cld
-    lea rdi, [rsp]
     call irqHandler
+    
     popad
-    add rsp, 10h
+    add rsp, 16
     iretq
 
 %assign i 32
 %rep 	223
 irq%+i:
-    cli
     push 0
     push i
     jmp handleIRQ

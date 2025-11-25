@@ -25,13 +25,18 @@ LD_ARCH := -m elf_x86_64
 KERNEL_OUT := $(CURDIR)/build/instant
 ISO_ROOT := $(CURDIR)/build/iso_root
 ISO_OUT := $(CURDIR)/build/instant.iso
+C_SRC := $(shell find src -name "*.c") $(shell find outside/uacpi/source -name "*.c")
+CPP_SRC := $(shell find src -name "*.cpp")
+ASM_SRC := $(shell find src -name "*.asm")
+
+OBJ := $(C_SRC:.c=.c.o) $(CPP_SRC:.cpp=.cc.o) $(ASM_SRC:.asm=.asm.o)
 
 .PHONY: all clean dirs iso
 
 all: dirs
 	$(MAKE) -C outside/limine CC=gcc CXX=g++ NASM=nasm
 	$(MAKE) -C src ROOTDIR=$(CURDIR)
-	$(LD) $(LD_ARCH) $(LDFLAGS) -T linker.ld -o $(KERNEL_OUT) $(shell find src -name "*.cc.o") $(shell find src -name "*.c.o") $(shell find src -name "*.asm.o")
+	$(LD) $(LD_ARCH) $(LDFLAGS) -T linker.ld -o $(KERNEL_OUT) $(OBJ)
 
 iso: all
 	rm -rf $(ISO_ROOT)

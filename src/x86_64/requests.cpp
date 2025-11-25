@@ -22,6 +22,13 @@ __attribute__((used, section(".limine_requests")))
     };
 
 __attribute__((used, section(".limine_requests")))
+    volatile limine_rsdp_request rsdp_request = {
+        .id = LIMINE_RSDP_REQUEST_ID,
+        .revision = 0,
+        .response = nullptr
+    };
+
+__attribute__((used, section(".limine_requests")))
     volatile limine_hhdm_request hhdm_request = {
         .id = LIMINE_HHDM_REQUEST_ID,
         .revision = 0,

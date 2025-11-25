@@ -1,0 +1,21 @@
+#pragma once
+#include <cpu/apic/lapic.hpp>
+
+struct InterruptFrame {
+    uint64_t rbx, rdx, rcx, rax, rdi, rsi, r8, r9, r10, r11;
+    uint64_t interrupt, errCode;
+    uint64_t rip, cs, rflags, rsp, ss;
+} __attribute__((packed));
+
+class Interrupt {
+public:
+    Interrupt() = default;
+    virtual ~Interrupt();
+
+    virtual void initialize() = 0;
+
+    virtual void Run(InterruptFrame* frame) = 0;
+    void sendEOI(){
+        LAPIC::get().sendEOI();
+    }
+};

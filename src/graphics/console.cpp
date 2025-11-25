@@ -8,6 +8,77 @@ Console::Console(Framebuffer* framebufferVal){
     posY = 0;
 }
 
+void Console::toString(char* ptr, int64_t num, int radix){
+    char* ptr1 = ptr;
+    char tmp_char;
+    int tmp_value;
+    bool negative = false;
+
+    if (num == 0) {
+        *ptr++ = '0';
+        *ptr = '\0';
+        drawText(ptr);
+    }
+
+    if (num < 0 && radix == 10) {
+        negative = true;
+        num = -num;
+    }
+
+    while (num != 0) {
+        tmp_value = num % radix;
+        num /= radix;
+        
+        if (tmp_value < 10)
+            *ptr++ = "0123456789"[tmp_value];
+        else
+            *ptr++ = "abcdefghijklmnopqrstuvwxyz"[tmp_value - 10];
+    }
+
+    if (negative)
+        *ptr++ = '-';
+
+    *ptr = '\0';
+
+    ptr--;
+    while (ptr1 < ptr) {
+        tmp_char = *ptr;
+        *ptr-- = *ptr1;
+        *ptr1++ = tmp_char;
+    }
+}
+
+void Console::toString(char* ptr, uint64_t num, int radix){
+    char* ptr1 = ptr;
+    char tmp_char;
+    int tmp_value;
+
+    if (num == 0) {
+        *ptr++ = '0';
+        *ptr = '\0';
+        drawText(ptr);
+    }
+
+    while (num != 0) {
+        tmp_value = num % radix;
+        num /= radix;
+        
+        if (tmp_value < 10)
+            *ptr++ = "0123456789"[tmp_value];
+        else
+            *ptr++ = "abcdefghijklmnopqrstuvwxyz"[tmp_value - 10];
+    }
+
+    *ptr = '\0';
+
+    ptr--;
+    while (ptr1 < ptr) {
+        tmp_char = *ptr;
+        *ptr-- = *ptr1;
+        *ptr1++ = tmp_char;
+    }
+}
+
 void Console::drawChar(const char c){
     if ((unsigned char)c < 0x20 || (unsigned char)c > 0x7F) return;
 
@@ -27,10 +98,23 @@ void Console::drawChar(const char c){
                     framebuffer->putPixel(locX, locY, drawColor);
                 }
             } else {
-                // backspace stuff here
+                uint64_t locX = baseX + x;
+                uint64_t locY = baseY + y;
+
+                auto background = framebuffer->getPixel(locX, locY + 16);
+                if (locX < framebuffer->getWidth() && locY < framebuffer->getHeight()) {
+                    framebuffer->putPixel(locX, locY, background);
+                }
             }
         }
     }
+}
+
+void Console::drawNumber(int64_t str){
+    drawNumber(str);
+}
+void Console::drawHex(uint64_t str){
+    drawNumber(str);
 }
 
 void Console::advance() {
@@ -71,7 +155,7 @@ void Console::scroll(){
         
     for (uint64_t y = framebuffer->getHeight() - scrollHeight; y < framebuffer->getHeight(); y++) {
         for (uint64_t x = 0; x < framebuffer->getWidth(); x++) {
-            framebuffer->putPixel(x, y, { 0, 255, 0 });
+            framebuffer->putPixel(x, y, 0x00ff00);
         }
     }
         
@@ -80,8 +164,23 @@ void Console::scroll(){
 
 void Console::drawText(const char* str){
     while (*str) {
-        drawChar(*str++);
-        advance();
+        if(*str == '\n') {
+            newLine();
+            str++;
+        } else if(*str == '\t') {
+            drawText("    ");
+            str++;
+        } else if(*str == '\r') {
+            posX = 0;
+            str++;
+        } else if(*str == '\b') {
+            posX -= 8;
+            drawChar(' ');
+            str++;
+        } else {
+            drawChar(*str++);
+            advance();
+        }
     }
 }
 

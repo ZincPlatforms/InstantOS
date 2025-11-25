@@ -16,6 +16,7 @@ CXXFLAGS := -std=c++23 -fno-rtti -I../freestanding/cxx/include -fno-exceptions $
 
 CPPFLAGS := -I$(ROOTDIR)/src \
             -I$(ROOTDIR)/outside/limine \
+			-I$(ROOTDIR)/outside/uacpi/include \
 			-I../freestanding/c/include \
             -I$(ROOTDIR)/src/cstd/include \
             -isystem $(ROOTDIR)/src/cxxstd/include
@@ -28,7 +29,7 @@ CXXFLAGS += $(ARCH_FLAGS)
 
 NASMFLAGS := -felf64 -g -F dwarf -Wall
 
-C_SRC := $(shell find . -name "*.c")
+C_SRC := $(shell find . -name "*.c") $(shell find ../outside/uacpi/source -name "*.c")
 CPP_SRC := $(shell find . -name "*.cpp")
 ASM_SRC := $(shell find . -name "*.asm")
 
@@ -37,6 +38,9 @@ OBJ := $(C_SRC:.c=.c.o) $(CPP_SRC:.cpp=.cc.o) $(ASM_SRC:.asm=.asm.o)
 .PHONY: all clean
 
 all: $(OBJ)
+
+print-obj:
+	echo $(OBJ)
 
 %.c.o: %.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
