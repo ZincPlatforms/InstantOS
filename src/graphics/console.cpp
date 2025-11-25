@@ -111,10 +111,14 @@ void Console::drawChar(const char c){
 }
 
 void Console::drawNumber(int64_t str){
-    drawNumber(str);
+    char hi[512];
+    toString(hi, str, 10);
+    drawText(hi);
 }
 void Console::drawHex(uint64_t str){
-    drawNumber(str);
+    char hi[512];
+    toString(hi, str, 16);
+    drawText(hi);
 }
 
 void Console::advance() {

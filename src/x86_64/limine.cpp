@@ -1,11 +1,14 @@
 #include "requests.hpp"
 #include <cpu/gdt/gdt.hpp>
 #include <cpu/idt/idt.hpp>
+#include <cpu/syscall/syscall.hpp>
 #include <cpu/mm/memmgr.hpp>
 #include <cpu/acpi/acpi.hpp>
 #include <cpu/apic/apic.hpp>
 #include <cpu/apic/irqs.hpp>
 #include <cpu/pic.hpp>
+#include <cpu/process/scheduler.hpp>
+#include <cpu/process/exec.hpp>
 #include <graphics/framebuffer.hpp>
 #include <graphics/console.hpp>
 #include <string.h>
@@ -16,6 +19,30 @@
 Framebuffer* fb = nullptr;
 Console* console = nullptr;
 void _bsod();
+
+void task1() {
+    int counter = 0;
+    while(1) {
+        counter++;
+        if(counter % 10000000 != 0) continue;
+        console->drawText("Task 1: ");
+        console->drawNumber(counter);
+        console->drawChar('\n');
+    }
+}
+
+void task2() {
+    int counter = 0;
+    while(1) {
+        counter++;
+        if(counter % 10000000 != 0) continue;
+        console->drawText("Task 2: ");
+        console->drawNumber(counter);
+        console->drawChar('\n');
+    }
+}
+
+
 extern "C" void _kinit(){
     asm volatile("cli");
     
@@ -43,13 +70,24 @@ extern "C" void _kinit(){
         console->drawText("APIC initialization failed.\n");
     }
     
+    Scheduler::get().initialize();
+    ISR::registerIRQ(VECTOR_TIMER, new Timer());
     auto kb = new Keyboard();
     ISR::registerIRQ(VECTOR_KEYBOARD, kb);
     APICManager::get().mapIRQ(IRQ_KEYBOARD, VECTOR_KEYBOARD);
+    Syscall::get().initialize();
     
     asm volatile("sti");
 
-    {
+    Process* p1 = ProcessExecutor::createKernelProcess(task1);
+    Process* p2 = ProcessExecutor::createKernelProcess(task2);
+    
+    Scheduler::get().addProcess(p1);
+    Scheduler::get().addProcess(p2);
+    
+    Scheduler::get().schedule();
+
+    if(false){
         fb->clear(0x000000);
         console->setTextColor(0xffffff);
         console->drawText("Welcome to InstantOS 0.0.1\n> ");
@@ -100,8 +138,6 @@ extern "C" void _kinit(){
             asm volatile("hlt");
         }
     }
-
-    _bsod();
 //    console->drawText("YOOO");
 
     for(;;);
