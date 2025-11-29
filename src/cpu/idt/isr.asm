@@ -8,6 +8,7 @@ extern irqHandler
     push rax
     push rdi
     push rsi
+    push rbp
     push r8
     push r9
     push r10
@@ -19,6 +20,7 @@ extern irqHandler
     pop r10
     pop r9
     pop r8
+    pop rbp
     pop rsi
     pop rdi
     pop rax
@@ -31,9 +33,15 @@ handleISR:
     pushad
     
     mov rdi, rsp
+
+    mov rbp, rsp
+    and rsp, ~0xF
+    sub rsp, 8
     
     cld 
     call exceptionHandler
+    
+    mov rsp, rbp
     
     popad
     add rsp, 16
@@ -90,8 +98,14 @@ handleIRQ:
     
     mov rdi, rsp
     
+    mov rbp, rsp
+    and rsp, ~0xF
+    sub rsp, 8
+    
     cld
     call irqHandler
+    
+    mov rsp, rbp
     
     popad
     add rsp, 16

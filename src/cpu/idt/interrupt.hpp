@@ -2,8 +2,13 @@
 #include <cpu/apic/lapic.hpp>
 
 struct InterruptFrame {
-    uint64_t rbx, rdx, rcx, rax, rdi, rsi, r8, r9, r10, r11;
+    // Pushed by pushad
+    uint64_t r11, r10, r9, r8, rbp, rsi, rdi, rax, rcx, rdx, rbx;
+    
+    // Pushed by ISR
     uint64_t interrupt, errCode;
+    
+    // Pushed by CPU
     uint64_t rip, cs, rflags, rsp, ss;
 } __attribute__((packed));
 

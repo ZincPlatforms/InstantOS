@@ -3,6 +3,7 @@
 
 extern "C" void* isrTable[];
 extern "C" void* irqTable[];
+extern "C" void syscallEntry();
 
 IDT::IDT(){
     idtp = IDTPointer {
@@ -22,6 +23,8 @@ IDT::IDT(){
             setEntry(i, (uint64_t)irqTable[i-32], 0x08, 0, 0x8E);
         }
     }
+    
+    setEntry(0x80, (uint64_t)&syscallEntry, 0x08, 0, 0xEE);
 
     asm volatile("lidt %0" : : "m"(idtp));
 }
