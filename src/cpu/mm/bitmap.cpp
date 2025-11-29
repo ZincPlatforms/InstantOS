@@ -10,14 +10,8 @@ void Bitmap::init(uint8_t* buffer, size_t size) {
     bmpBuffer = buffer;
     bmpSize = size;
 
-    memset(bmpBuffer, 0, (size + 7 / 8));
+    memset(bmpBuffer, 0xFF, (size + 7) / 8);
 }
-
-/*
-#include <graphics/console.hpp>
-extern Console* _console;
-_console->drawText("Hello world");
-*/
 
 bool Bitmap::set(size_t index) {
     if (index >= bmpSize) return false;
