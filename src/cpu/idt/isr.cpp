@@ -5,7 +5,7 @@
 #include <cpu/process/scheduler.hpp>
 
 Interrupt *interruptHandlers[256] = {nullptr};
-
+void _bsod();
 extern Framebuffer* fb;
 extern Console* console;
 
@@ -79,6 +79,7 @@ extern "C" void exceptionHandler(InterruptFrame* frame) {
         console->drawHex(frame->rbp);
     }
 
+    _bsod();
     while(1);
 }
 
