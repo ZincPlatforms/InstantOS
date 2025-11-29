@@ -2,7 +2,9 @@
 
 #include <cpu/idt/interrupt.hpp>
 #include <cpu/process/scheduler.hpp>
+#include <cpu/apic/irqs.hpp>
 #include <graphics/console.hpp>
+
 extern Console* console;
 
 class Timer : public Interrupt {
@@ -15,7 +17,7 @@ public:
         lapic.write(0x320, 0x10000);
         lapic.write(0x380, 0xFFFFFFFF);
                 
-        for (volatile int i = 0; i < 10000000; i++) {
+        for (int i = 0; i < 10000000; i++) {
             asm volatile("pause");
         }
 
@@ -39,13 +41,29 @@ public:
     
     void Run(InterruptFrame* frame) override {
         this->sendEOI();
-        if(tick++ % 50 == 0){
-            console->drawText("Switching...\n");
-            Scheduler::get().schedule();
+        tick++;
+        milliseconds++;
+        
+        if(tick % 10 == 0){
+            Scheduler::get().schedule(frame);
         }
+    }
+    
+    static Timer& get() {
+        static Timer instance;
+        return instance;
+    }
+    
+    uint64_t getMilliseconds() const {
+        return milliseconds;
+    }
+    
+    uint64_t getTicks() const {
+        return tick;
     }
 
 private:
     uint32_t tpus;
-    int tick = 0;
+    uint64_t tick = 0;
+    uint64_t milliseconds = 0;
 };
