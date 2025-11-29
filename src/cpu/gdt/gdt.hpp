@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 extern "C" void reloadSegments(uint16_t data, uint16_t code);
+extern "C" void jumpToUsermode(uint64_t entry, uint64_t stack);
 
 enum class SegmentSelectors : uint16_t {
     KernelCode = 0x08,
@@ -42,6 +43,19 @@ struct TSS {
     uint16_t iopb;
 } __attribute__((packed));
 
+struct TSSEntry {
+    uint16_t limitLow;
+    uint16_t baseLow;
+    uint8_t  baseMiddle1;
+    uint8_t  access;
+    uint8_t  limitHigh : 4;
+    uint8_t  flags : 4;
+    uint8_t  baseMiddle2;
+
+    uint32_t baseHigh;
+    uint32_t reserved;
+} __attribute__((packed));
+
 class GDT {
 private:
     GDTEntry gdt[8];
@@ -54,8 +68,9 @@ public:
     void setTSS(int index, uint64_t base, uint32_t limit);
     void setGate64(int num, uint8_t access, uint8_t gran);
     void setGate32(int num, uint64_t base, uint64_t limit, uint8_t access, uint8_t gran);
-    void setRSP0(uint64_t rsp0);
-    void setIST(int index, uint64_t ist);
+    
+    void setKernelStack(uint64_t stack);
+    TSS* getTSS() { return &tss; }
 
     ~GDT();
 };

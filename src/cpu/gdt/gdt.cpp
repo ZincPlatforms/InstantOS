@@ -1,4 +1,5 @@
 #include "gdt.hpp"
+#include <cstddef>
 
 GDT::GDT(){
     gdtp.limit = (sizeof(GDTEntry) * 8) - 1;
@@ -12,20 +13,10 @@ GDT::GDT(){
     setGate64(3, 0xFA, 0x20);
     setGate64(4, 0xF2, 0x00);
     
-    tss.reserved0 = 0;
-    tss.rsp0 = 0;
-    tss.rsp1 = 0;
-    tss.rsp2 = 0;
-    tss.reserved1 = 0;
-    tss.ist1 = 0;
-    tss.ist2 = 0;
-    tss.ist3 = 0;
-    tss.ist4 = 0;
-    tss.ist5 = 0;
-    tss.ist6 = 0;
-    tss.ist7 = 0;
-    tss.reserved2 = 0;
-    tss.reserved3 = 0;
+    for (size_t i = 0; i < sizeof(TSS); i++) {
+        ((uint8_t*)&tss)[i] = 0;
+    }
+    
     tss.iopb = sizeof(TSS);
     
     uint64_t tssBase = (uint64_t)&tss;
@@ -37,7 +28,7 @@ GDT::GDT(){
     
     reloadSegments((uint16_t)SegmentSelectors::KernelData, (uint16_t)SegmentSelectors::KernelCode);
 
-    asm volatile("ltr %0" : : "r"(SegmentSelectors::TaskState));
+    asm volatile("ltr %0" : : "r"((uint16_t)SegmentSelectors::TaskState));
 }
 
 void GDT::setGate64(int num, uint8_t access, uint8_t gran){
@@ -79,22 +70,10 @@ void GDT::setTSS(int index, uint64_t base, uint32_t limit) {
     gdt[index + 1].granularity = 0;
 }
 
+void GDT::setKernelStack(uint64_t stack) {
+    tss.rsp0 = stack;
+}
+
 GDT::~GDT(){
 
-}
-
-void GDT::setRSP0(uint64_t rsp0) {
-    tss.rsp0 = rsp0;
-}
-
-void GDT::setIST(int index, uint64_t ist) {
-    switch(index) {
-        case 1: tss.ist1 = ist; break;
-        case 2: tss.ist2 = ist; break;
-        case 3: tss.ist3 = ist; break;
-        case 4: tss.ist4 = ist; break;
-        case 5: tss.ist5 = ist; break;
-        case 6: tss.ist6 = ist; break;
-        case 7: tss.ist7 = ist; break;
-    }
 }
