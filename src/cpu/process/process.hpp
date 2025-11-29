@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include "../mm/vmm.hpp"
+#include <cpu/mm/vmm.hpp>
 
 enum class ProcessState {
     Ready,
@@ -17,13 +17,25 @@ struct alignas(16) FPUState {
 struct ProcessContext {
     uint64_t rax, rbx, rcx, rdx;
     uint64_t rsi, rdi, rbp, rsp;
-    uint64_t r8, r9, r10, r11;
-    uint64_t r12, r13, r14, r15;
-    uint64_t rip;
-    uint64_t rflags;
-    uint64_t cr3;
-    uint64_t fpuStatePtr;
+    uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
+    uint64_t rip, rflags, cr3, fxstate;
 };
+
+#define NSIG 32
+#define SIGKILL 9
+#define SIGSEGV 11
+#define SIGTERM 15
+
+typedef void (*sighandler_t)(int);
+
+struct SignalHandler {
+    sighandler_t handlers[NSIG];
+    uint64_t pending;
+    uint64_t blocked;
+};
+
+
+class GDT;
 
 class Process {
 public:
@@ -44,14 +56,33 @@ public:
     void setKernelStack(uint64_t stack) { kernelStack = stack; }
     void setUserStack(uint64_t stack) { userStack = stack; }
     
+    void jumpToUsermode(uint64_t entry, GDT* gdt);
+    
+    uint32_t getParentPID() const { return parentPID; }
+    void setParentPID(uint32_t ppid) { parentPID = ppid; }
+    
+    int getExitCode() const { return exitCode; }
+    void setExitCode(int code) { exitCode = code; }
+    
     Process* next;
+    
+    bool hasValidUserState() const { return validUserState; }
+    void setValidUserState(bool valid) { validUserState = valid; }
+    
+    SignalHandler* getSignalHandler() { return &signalHandler; }
+    void sendSignal(int sig);
+    void handlePendingSignals();
     
 private:
     uint32_t pid;
+    uint32_t parentPID;
+    int exitCode;
     ProcessState state;
     uint64_t kernelStack;
     uint64_t userStack;
     ProcessContext context;
     FPUState* fpuState;
     VMM vmm;
+    bool validUserState;
+    SignalHandler signalHandler;
 };

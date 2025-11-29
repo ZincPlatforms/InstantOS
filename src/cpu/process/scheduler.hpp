@@ -1,6 +1,7 @@
 #pragma once
 
 #include "process.hpp"
+#include <cpu/idt/interrupt.hpp>
 #include <cstdint>
 
 class Scheduler {
@@ -14,9 +15,13 @@ public:
     void removeProcess(uint32_t pid);
     
     Process* getCurrentProcess() { return currentProcess; }
+    void setCurrentProcess(Process* proc) { currentProcess = proc; }
     Process* getNextProcess();
+    Process* getProcessByPID(uint32_t pid);
     
     void schedule();
+    void schedule(struct InterruptFrame* frame);
+    void scheduleFromSyscall();  // Special version that doesn't save old context
     void yield();
     
     uint32_t allocatePID();

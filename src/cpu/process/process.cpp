@@ -1,9 +1,22 @@
 #include "process.hpp"
-#include "../mm/pmm.hpp"
+#include <cpu/mm/pmm.hpp>
 #include <x86_64/requests.hpp>
+#include <cpu/gdt/gdt.hpp>
+#include <cpu/syscall/syscall.hpp>
+#include <graphics/console.hpp>
 
+extern Console* console;
+extern "C" void enterUsermode(uint64_t entry, uint64_t stack);
 
-Process::Process(uint32_t pid) : pid(pid), state(ProcessState::Ready), next(nullptr), kernelStack(0), userStack(0), fpuState(nullptr) {
+constexpr uint64_t USER_STACK_TOP = 0x00007FFFFFFFE000;  // Top of canonical user space
+constexpr size_t USER_STACK_PAGES = 4;
+
+Process::Process(uint32_t pid) : pid(pid), parentPID(0), next(nullptr), exitCode(0), state(ProcessState::Ready), kernelStack(0), userStack(0), fpuState(nullptr), validUserState(false) {
+    for (int i = 0; i < NSIG; i++) {
+        signalHandler.handlers[i] = nullptr;
+    }
+    signalHandler.pending = 0;
+    signalHandler.blocked = 0;
     vmm.init();
     vmm.cloneKernelMappings();
     
@@ -11,6 +24,20 @@ Process::Process(uint32_t pid) : pid(pid), state(ProcessState::Ready), next(null
     if (kstackPhys) {
         uint64_t kstackVirt = reinterpret_cast<uint64_t>(kstackPhys) + hhdm_request.response->offset;
         kernelStack = kstackVirt + (4 * PAGE_SIZE);
+        if (console) {
+            console->drawText("[PROCESS] PID=");
+            console->drawNumber(pid);
+            console->drawText(" KernelStack=");
+            console->drawHex(kernelStack);
+            console->drawText("\n");
+        }
+    }
+    
+    void* ustackPhys = pmm.allocatePages(USER_STACK_PAGES);
+    if (ustackPhys) {
+        uint64_t ustackBase = USER_STACK_TOP - (USER_STACK_PAGES * PAGE_SIZE);
+        vmm.mapRange(reinterpret_cast<void*>(ustackBase), ustackPhys, USER_STACK_PAGES, PTE_PRESENT | PTE_WRITABLE | PTE_USER);
+        userStack = USER_STACK_TOP - 8;  // Start 8 bytes below top (inside mapped region)
     }
     
     void* fpuPhys = pmm.allocatePage();
@@ -41,7 +68,7 @@ Process::Process(uint32_t pid) : pid(pid), state(ProcessState::Ready), next(null
     uint64_t pml4Phys = pml4Virt - hhdm_request.response->offset;
     context.cr3 = pml4Phys;
     
-    context.fpuStatePtr = reinterpret_cast<uint64_t>(fpuState);
+    context.fxstate = reinterpret_cast<uint64_t>(fpuState);
     
     if (fpuState) {
         asm volatile("fxsave (%0)" : : "r"(fpuState));
@@ -55,8 +82,74 @@ Process::~Process() {
         pmm.freePages(kstackPhys, 4);
     }
     
+    if (userStack) {
+        uint64_t ustackBase = USER_STACK_TOP - (USER_STACK_PAGES * PAGE_SIZE);
+        void* ustackVirt = reinterpret_cast<void*>(ustackBase);
+        void* ustackPhys = vmm.getPhysical(ustackVirt);
+        if (ustackPhys) {
+            vmm.unmapRange(ustackVirt, USER_STACK_PAGES);
+            pmm.freePages(ustackPhys, USER_STACK_PAGES);
+        }
+    }
+    
     if (fpuState) {
         void* fpuPhys = reinterpret_cast<void*>(reinterpret_cast<uint64_t>(fpuState) - hhdm_request.response->offset);
         pmm.freePage(fpuPhys);
+    }
+}
+
+void Process::jumpToUsermode(uint64_t entry, GDT* gdt) {    
+    vmm.load();
+    
+    if (gdt) {
+        gdt->setKernelStack(kernelStack);
+    }
+    
+    Syscall::get().setKernelStack(kernelStack);
+    
+    context.rip = entry;
+    context.rsp = userStack;
+    
+    enterUsermode(entry, userStack);
+}
+
+void Process::sendSignal(int sig) {
+    if (sig < 0 || sig >= NSIG) return;
+    signalHandler.pending |= (1ULL << sig);
+}
+
+void Process::handlePendingSignals() {
+    if (!signalHandler.pending) return;
+    
+    for (int sig = 0; sig < NSIG; sig++) {
+        if (!(signalHandler.pending & (1ULL << sig))) continue;
+        if (signalHandler.blocked & (1ULL << sig)) continue;
+        
+        signalHandler.pending &= ~(1ULL << sig);
+        
+        if (sig == SIGKILL) {
+            state = ProcessState::Terminated;
+            exitCode = 128 + sig;
+            return;
+        }
+        
+        sighandler_t handler = signalHandler.handlers[sig];
+        if (!handler) {
+            state = ProcessState::Terminated;
+            exitCode = 128 + sig;
+            return;
+        }
+        
+        uint64_t oldRsp = context.rsp;
+        context.rsp -= 128;
+        context.rsp &= ~0xFULL;
+        
+        uint64_t* stack = reinterpret_cast<uint64_t*>(context.rsp);
+        stack[0] = context.rip;
+        
+        context.rip = reinterpret_cast<uint64_t>(handler);
+        context.rdi = sig;
+        
+        break;
     }
 }
