@@ -2,6 +2,7 @@
 
 global _main
 extern initConstructors
+extern enable_sse
 extern _kinit
 
 global __dso_handle
@@ -68,6 +69,8 @@ __cxa_guard_abort:
     ret
 
 _main:
+    call enable_sse
+    
     call initConstructors ; initialize C++ constructors
     
     call _kinit
