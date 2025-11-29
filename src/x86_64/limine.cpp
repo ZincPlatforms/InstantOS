@@ -16,45 +16,30 @@
 #include <interrupts/timer.hpp>
 #include <interrupts/keyboard.hpp>
 
+#include <fs/vfs/vfs.hpp>
+#include <fs/initrd/initrd.hpp>
+#include <fs/ramfs/ramfs.hpp>
+
 Framebuffer* fb = nullptr;
 Console* console = nullptr;
-void _bsod();
+GDT* gdt = nullptr;
+Keyboard* globalKeyboard = nullptr;
+Timer* globalTimer = nullptr;
 
-void task1() {
-    int counter = 0;
-    while(1) {
-        counter++;
-        if(counter % 10000000 != 0) continue;
-        console->drawText("Task 1: ");
-        console->drawNumber(counter);
-        console->drawChar('\n');
-    }
-}
+int main();
 
-void task2() {
-    int counter = 0;
-    while(1) {
-        counter++;
-        if(counter % 10000000 != 0) continue;
-        console->drawText("Task 2: ");
-        console->drawNumber(counter);
-        console->drawChar('\n');
-    }
-}
-
-
+extern "C" void enterUsermode(uint64_t entry, uint64_t stack);
 extern "C" void _kinit(){
     asm volatile("cli");
     
-    GDT gdt;
-    IDT idt;
+    static GDT _gdt;
+    gdt = &_gdt;
+    static IDT _idt;
     
     MemoryManager mm;
 
     fb = new Framebuffer();
     console = new Console(fb);
-    console->setTextColor(0xFF0000);
-    fb->clear(0x00FF00);
         
     if (ACPI::get().initialize()) {
         console->drawText("ACPI initialized successfully.\n");
@@ -71,77 +56,36 @@ extern "C" void _kinit(){
     }
     
     Scheduler::get().initialize();
-    ISR::registerIRQ(VECTOR_TIMER, new Timer());
-    auto kb = new Keyboard();
-    ISR::registerIRQ(VECTOR_KEYBOARD, kb);
+    
+    globalTimer = new Timer();
+    ISR::registerIRQ(VECTOR_TIMER, globalTimer);
+    globalTimer->initialize();
+    
+    globalKeyboard = new Keyboard();
+    ISR::registerIRQ(VECTOR_KEYBOARD, globalKeyboard);
     APICManager::get().mapIRQ(IRQ_KEYBOARD, VECTOR_KEYBOARD);
     Syscall::get().initialize();
     
-    asm volatile("sti");
-
-    Process* p1 = ProcessExecutor::createKernelProcess(task1);
-    Process* p2 = ProcessExecutor::createKernelProcess(task2);
+    VFS::get().initialize();
     
-    Scheduler::get().addProcess(p1);
-    Scheduler::get().addProcess(p2);
-    
-    Scheduler::get().schedule();
-
-    if(false){
-        fb->clear(0x000000);
-        console->setTextColor(0xffffff);
-        console->drawText("Welcome to InstantOS 0.0.1\n> ");
-        char textbuf[1024];
-        int size = 0;
-        while(true){
-            if (kb->hasKey()) {
-                char k = kb->getKey();
-
-                switch (k) {
-                case '\n': {
-                    console->drawText("\n");
-                    textbuf[size++] = '\0';
-
-                    if(textbuf[0] == 'b' && textbuf[1] == 's' && textbuf[2] == 'o' && textbuf[3] == 'd') {
-                        _bsod();
-                        while(1);
-                    } else if(textbuf[0] == 'e' && textbuf[1] == 'c' && textbuf[2] == 'h' && textbuf[3] == 'o') {
-                        int i = 5;
-
-                        while(true){
-                            if(textbuf[i] == '\0') break;
-                            const char hi[2] = {textbuf[i++], '\0'};
-                            console->drawText(hi);
-                        }
-
-                    } else if(textbuf[0] == 'h' && textbuf[1] == 'e' && textbuf[2] == 'l' && textbuf[3] == 'p') {
-                        console->drawText("InstantOS Shell 0.1\n");
-                        console->drawText("\t- bsod: trigger a bsod (windows edition)\n");
-                        console->drawText("\t- echo: print text");
-                    }
-                    console->drawText("\n> ");
-
-                    size = 0;
-                } break;
-                
-                default:
-                    char temp[2] = {k, '\0'};
-                    console->drawText(temp);
-                    if(k != '\b')
-                        textbuf[size++] = k;
-                    else {
-                        --size;
-                    }
-                    break;
-                }
-            }
-            asm volatile("hlt");
+    if (module_request.response && module_request.response->module_count > 0) {
+        auto* module = module_request.response->modules[0];
+        
+        InitrdFS* initrd = new InitrdFS(module->address, module->size);
+        if (VFS::get().mount(initrd, "/") == 0) {
+            console->drawText("Initrd mounted at /\n");
+        } else {
+            console->drawText("Failed to mount initrd\n");
         }
     }
-//    console->drawText("YOOO");
+    
+    RamFS* ramfs = new RamFS();
+    if (VFS::get().mount(ramfs, "/tmp") == 0) {
+        console->drawText("RamFS mounted at /tmp\n");
+    }
+    
+    int returnCode = main();
 
     for(;;);
 
-//     delete fb;
-//     delete console;
 }
