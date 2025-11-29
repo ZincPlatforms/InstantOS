@@ -51,7 +51,9 @@ MemoryManager::MemoryManager(){
             uint64_t base = entry->base & ~(PAGE_SIZE - 1);
             uint64_t length = ((entry->base + entry->length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1)) - base;
             size_t page_count = length / PAGE_SIZE;
-                
+
+            pmm.reservePages(reinterpret_cast<void*>(base), page_count);
+
             for (size_t j = 0; j < page_count; j++) {
                 void* addr = reinterpret_cast<void*>(base + j * PAGE_SIZE);
                 vmm.map(addr, addr, PTE_PRESENT | PTE_WRITABLE);
@@ -59,7 +61,6 @@ MemoryManager::MemoryManager(){
         }
     }
 
-    // heap init
     size_t pages = (INITIAL_HEAP_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
     
     void* phys = pmm.allocatePages(pages);
