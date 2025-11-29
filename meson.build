@@ -61,6 +61,9 @@ inc_dirs_freestanding_cxx = include_directories(
   'freestanding/cxx/include',
 )
 
+subdir('outside/ilibc')
+subdir('outside/ilibcxx')
+
 subdir('tools')
 subdir('userland')
 subdir('src')
