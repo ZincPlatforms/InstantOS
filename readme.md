@@ -2,11 +2,15 @@
 A rewrite of the closed source graphical x86_64 operating system
 
 # Features
-- [x] Terminal Emulator
+- [x] Terminal Emulator (with ANSI)
+- [x] Userland!
+- [x] C/C++ and Rust Support
 - [x] Keyboard support
 
 # Upcoming features
 - [ ] Mouse support
+- [ ] Window Manager
+- [ ] Custom FileSystem
 
 # Building
 To build this OS, you need:
