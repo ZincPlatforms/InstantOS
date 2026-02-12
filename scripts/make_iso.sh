@@ -6,6 +6,7 @@ KERNEL=$2
 INITRD=$3
 SOURCE_DIR=$4
 ISO_ROOT=$5
+LIMINE_BINARY=$6
 
 rm -rf "$ISO_ROOT"
 mkdir -p "$ISO_ROOT"
@@ -33,6 +34,6 @@ xorriso -as mkisofs \
     -efi-boot-part --efi-boot-image --protective-msdos-label \
     "$ISO_ROOT" -o "$OUTPUT_ISO"
 
-"$SOURCE_DIR/outside/limine/limine" bios-install "$OUTPUT_ISO"
+"$LIMINE_BINARY" bios-install "$OUTPUT_ISO"
 
 echo "ISO created: $OUTPUT_ISO"
