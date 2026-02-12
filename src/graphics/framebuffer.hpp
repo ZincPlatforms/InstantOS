@@ -17,6 +17,13 @@ class Framebuffer {
         void* getRaw();
         uint64_t getPitch();
 
+        uint8_t getRedMaskSize() { return buffer->getRedMaskSize(); }
+        uint8_t getRedMaskShift() { return buffer->getRedMaskShift(); }
+        uint8_t getGreenMaskSize() { return buffer->getGreenMaskSize(); }
+        uint8_t getGreenMaskShift() { return buffer->getGreenMaskShift(); }
+        uint8_t getBlueMaskSize() { return buffer->getBlueMaskSize(); }
+        uint8_t getBlueMaskShift() { return buffer->getBlueMaskShift(); }
+
     private:
         Buffer* buffer;
 };
