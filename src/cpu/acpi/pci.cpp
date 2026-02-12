@@ -15,20 +15,16 @@ uint32_t PCI::makeAddress(uint8_t bus, uint8_t device, uint8_t function, uint16_
 }
 
 uint8_t PCI::readConfig8(uint16_t segment, uint8_t bus, uint8_t device, uint8_t function, uint16_t offset) {
-    // Segment 0 only for legacy PCI
     if (segment != 0) {
         return 0xFF;
     }
     
     uint32_t address = makeAddress(bus, device, function, offset);
     
-    // Write address to CONFIG_ADDRESS
     outl(CONFIG_ADDRESS, address);
     
-    // Read from CONFIG_DATA at the appropriate byte offset
     uint32_t data = inl(CONFIG_DATA);
     
-    // Extract the correct byte
     return (data >> ((offset & 3) * 8)) & 0xFF;
 }
 
@@ -43,7 +39,6 @@ uint16_t PCI::readConfig16(uint16_t segment, uint8_t bus, uint8_t device, uint8_
     
     uint32_t data = inl(CONFIG_DATA);
     
-    // Extract the correct word
     return (data >> ((offset & 2) * 8)) & 0xFFFF;
 }
 
@@ -70,7 +65,6 @@ void PCI::writeConfig8(uint16_t segment, uint8_t bus, uint8_t device, uint8_t fu
     
     outl(CONFIG_ADDRESS, address);
 
-    // Read-modify-write for byte access
     uint32_t data = inl(CONFIG_DATA);
 
     uint8_t shift = (offset & 3) * 8;
@@ -88,7 +82,6 @@ void PCI::writeConfig16(uint16_t segment, uint8_t bus, uint8_t device, uint8_t f
     
     outl(CONFIG_ADDRESS, address);
     
-    // Read-modify-write for word access
     uint32_t data = inl(CONFIG_DATA);
     
     uint8_t shift = (offset & 2) * 8;

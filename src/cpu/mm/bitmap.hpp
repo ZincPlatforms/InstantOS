@@ -7,8 +7,7 @@ class Bitmap {
 public:
     Bitmap();
     Bitmap(uint8_t* buffer, size_t size);
-    void init(uint8_t* buffer, size_t size); // for global constructor based bitmaps
-
+    void init(uint8_t* buffer, size_t size);
     bool get(size_t index) const;
     bool set(size_t index);
     

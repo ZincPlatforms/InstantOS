@@ -76,3 +76,7 @@ MemoryManager::MemoryManager(){
     
     kheap.init(virt, INITIAL_HEAP_SIZE);
 }
+
+uint64_t MemoryManager::getTotalMemory() const {
+    return totalMemory;
+}

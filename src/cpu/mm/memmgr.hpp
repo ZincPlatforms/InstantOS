@@ -11,4 +11,5 @@ private:
     static constexpr size_t INITIAL_HEAP_SIZE = 1 * 1024 * 1024;
 public:
     MemoryManager();
+    uint64_t getTotalMemory() const;
 };
