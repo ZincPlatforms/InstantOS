@@ -6,9 +6,3 @@
 [submodule "outside/uacpi"]
 	path = outside/uacpi
 	url = https://github.com/uACPI/uACPI
-[submodule "outside/ilibcxx"]
-	path = outside/ilibcxx
-	url = https://github.com/landingpad75/ilibcxx
-[submodule "outside/ilibc"]
-	path = outside/ilibc
-	url = https://github.com/landingpad75/ilibc
