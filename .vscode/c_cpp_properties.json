@@ -5,11 +5,10 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/outside/limine/*",
-                "${workspaceFolder}/outside/ilibc/include",
-                "${workspaceFolder}/outside/ilibcxx/include"
+                "${workspaceFolder}/ilibcxx/include"
             ],
             "defines": [],
-            "compilerPath": "/usr/bin/gcc",
+            "compilerPath": "x86_64-elf-gcc",
             "cStandard": "c17",
             "cppStandard": "c++23",
             "intelliSenseMode": "linux-clang-x64"
