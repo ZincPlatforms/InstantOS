@@ -6,3 +6,6 @@
 [submodule "outside/uacpi"]
 	path = outside/uacpi
 	url = https://github.com/uACPI/uACPI
+[submodule "outside/freestnd-c-hdrs"]
+	path = outside/freestnd-c-hdrs
+	url = https://codeberg.org/OSDev/freestnd-c-hdrs

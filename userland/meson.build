@@ -34,7 +34,7 @@ if files_result.returncode() == 0 and files_result.stdout().strip() != ''
           '-mcmodel=small',
           '-std=c++17',
           '-I@0@'.format(meson.project_source_root() / 'ilibcxx/include'),
-          '-I@0@'.format(meson.project_source_root() / 'freestanding/c/include'),
+          '-I@0@'.format(meson.project_source_root() / 'outside/freestnd-c-hdrs/x86_64/include'),
           '-I@0@'.format(meson.project_source_root() / 'freestanding/cxx/include'),
           '-c',
           '@INPUT@',

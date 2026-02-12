@@ -48,7 +48,7 @@ inc_dirs = include_directories(
   'src',
   'outside/limine',
   'outside/uacpi/include',
-  'freestanding/c/include',
+  'outside/freestnd-c-hdrs/x86_64/include',
   'src/cstd/include',
 )
 
