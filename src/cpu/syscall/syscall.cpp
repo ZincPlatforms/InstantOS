@@ -9,6 +9,8 @@
 #include <x86_64/requests.hpp>
 #include <x86_64/ports.hpp>
 #include <string.h>
+#include <cpuid.h>
+#include <string.h>
 
 extern Console* console;
 extern Keyboard* globalKeyboard;
@@ -35,9 +37,7 @@ void Syscall::initialize() {
         console->drawText("No 'syscall' instruction support. halting...");
         asm volatile("cli");
         while(1);
-    }
-
-    
+    }    
 }
 
 void Syscall::setKernelStack(uint64_t stack) {
@@ -47,7 +47,10 @@ void Syscall::setKernelStack(uint64_t stack) {
 uint64_t Syscall::handle(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
     switch ((SyscallNumber)syscall_num) {
         using enum SyscallNumber;
-        case Exit:
+        case OSInfo:
+            return sys_osinfo(arg1);
+        case ProcInfo:
+            return 0;        case Exit:
             return sys_exit(arg1);
         case Write:
             return sys_write(arg1, arg2, arg3);
@@ -105,8 +108,6 @@ uint64_t Syscall::sys_exit(uint64_t code) {
 }
 
 static bool isValidUserPointer(uint64_t ptr, size_t size) {
-    // User space: < 0x0000800000000000
-    // Kernel space: >= 0xFFFF800000000000
     if (ptr >= 0xFFFF800000000000) {
         return false;
     }
@@ -342,10 +343,25 @@ uint64_t Syscall::sys_sleep(uint64_t ms) {
     uint64_t start = globalTimer->getMilliseconds();
     uint64_t target = start + ms;
     
-    while (globalTimer->getMilliseconds() < target) {
-        asm volatile("pause");
+    asm volatile("sti");
+    
+    if (ms < 10) {
+        while (globalTimer->getMilliseconds() < target) {
+            asm volatile("pause");
+        }
+        asm volatile("cli");
+        return 0;
     }
     
+    uint64_t yieldCounter = 0;
+    while (globalTimer->getMilliseconds() < target) {
+        if (yieldCounter++ % 1000 == 0) {
+            Scheduler::get().yield();
+        }
+        
+        asm volatile("pause");
+    }
+    asm volatile("cli");
     return 0;
 }
 
@@ -369,6 +385,12 @@ struct FBInfo {
     uint32_t height;
     uint32_t pitch;
     uint16_t bpp;
+    uint8_t redMaskSize;
+    uint8_t redMaskShift;
+    uint8_t greenMaskSize;
+    uint8_t greenMaskShift;
+    uint8_t blueMaskSize;
+    uint8_t blueMaskShift;
 };
 
 uint64_t Syscall::sys_fb_info(uint64_t info_ptr) {
@@ -376,6 +398,10 @@ uint64_t Syscall::sys_fb_info(uint64_t info_ptr) {
     
     extern Framebuffer* fb;
     if (!fb) return (uint64_t)-1;
+    
+    if (!isValidUserPointer(info_ptr, sizeof(FBInfo))) {
+        return (uint64_t)-1;
+    }
     
     uint64_t fb_kernel_virt = reinterpret_cast<uint64_t>(fb->getRaw());
     uint64_t fb_phys = fb_kernel_virt - hhdm_request.response->offset;
@@ -385,8 +411,8 @@ uint64_t Syscall::sys_fb_info(uint64_t info_ptr) {
     Process* current = Scheduler::get().getCurrentProcess();
     if (!current) return (uint64_t)-1;
     
-    size_t fb_size = fb->getPitch() * fb->getHeight();
-    size_t pages = (fb_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    size_t fb_size_bytes = fb->getPitch() * fb->getHeight() * sizeof(uint32_t);
+    size_t pages = (fb_size_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
     
     current->getVMM()->mapRange(
         reinterpret_cast<void*>(USER_FB_BASE),
@@ -394,14 +420,25 @@ uint64_t Syscall::sys_fb_info(uint64_t info_ptr) {
         pages,
         PTE_PRESENT | PTE_WRITABLE | PTE_USER | PTE_CACHE_DISABLE
     );
+
     
-    FBInfo* info = reinterpret_cast<FBInfo*>(info_ptr);
-    info->addr = USER_FB_BASE;
-    info->width = fb->getWidth();
-    info->height = fb->getHeight();
-    info->pitch = fb->getPitch();
-    info->bpp = sizeof(uint32_t);
+    FBInfo kernel_info;
+    kernel_info.addr = USER_FB_BASE;
+    kernel_info.width = fb->getWidth();
+    kernel_info.height = fb->getHeight();
+    kernel_info.pitch = fb->getPitch();
     
+    kernel_info.redMaskSize = fb->getRedMaskSize();
+    kernel_info.redMaskShift = fb->getRedMaskShift();
+    kernel_info.greenMaskSize = fb->getGreenMaskSize();
+    kernel_info.greenMaskShift = fb->getGreenMaskShift();
+    kernel_info.blueMaskSize = fb->getBlueMaskSize();
+    kernel_info.blueMaskShift = fb->getBlueMaskShift();
+    
+    kernel_info.bpp = sizeof(uint32_t);
+    
+    char* user_ptr = reinterpret_cast<char*>(info_ptr);
+    memcpy(user_ptr, &kernel_info, sizeof(FBInfo));
     return 0;
 }
 
@@ -411,7 +448,6 @@ uint64_t Syscall::sys_fb_map() {
     extern Framebuffer* fb;
     if (!fb) return (uint64_t)-1;
     
-    // todo: do actual mapping
     return reinterpret_cast<uint64_t>(fb->getRaw());
 }
 
@@ -476,6 +512,120 @@ uint64_t Syscall::sys_sigreturn() {
     uint64_t* stack = reinterpret_cast<uint64_t*>(current->getContext()->rsp);
     current->getContext()->rip = stack[0];
     current->getContext()->rsp += 128;
+    
+    return 0;
+}
+
+size_t strncpyToUser(char* user_dest, const char* kernel_src, size_t max_len) {
+    if (!isValidUserPointer((uint64_t)user_dest, max_len)) {
+        return (size_t)-1;
+    }
+
+    if (max_len == 0) return 0;
+
+    while (*kernel_src && (*kernel_src == ' ' || *kernel_src == '\t')) {
+        kernel_src++;
+    }
+
+    size_t i = 0;
+    size_t src_len = 0;
+    
+    const char* src_start = kernel_src;
+    const char* src_end = kernel_src;
+    while (*src_end) src_end++;
+    
+    while (src_end > src_start && (src_end[-1] == ' ' || src_end[-1] == '\t')) {
+        src_end--;
+    }
+    
+    src_len = src_end - src_start;
+    
+    for (i = 0; i < max_len - 1 && i < src_len; i++) {
+        user_dest[i] = src_start[i];
+    }
+    
+    user_dest[i] = '\0';
+    return i;
+}
+
+size_t uitoa(uint64_t value, char* buffer, size_t buffer_size) {
+    if (buffer_size == 0) return 0;
+
+    char temp[20];    size_t i = 0;
+
+    if (value == 0) {
+        if (buffer_size > 1) {
+            buffer[0] = '0';
+            buffer[1] = '\0';
+            return 1;
+        } else {
+            buffer[0] = '\0';
+            return 0;
+        }
+    }
+
+    while (value && i < sizeof(temp)) {
+        temp[i++] = '0' + (value % 10);
+        value /= 10;
+    }
+
+    size_t j = 0;
+    while (i > 0 && j < buffer_size - 1) {
+        buffer[j++] = temp[--i];
+    }
+
+    buffer[j] = '\0';
+    return j;
+}
+
+
+uint64_t Syscall::sys_osinfo(uint64_t info_ptr) {
+    if (!isValidUserPointer(info_ptr, sizeof(OSInfo))) {
+        return (uint64_t)-1;
+    }
+    
+    OSInfo* info = reinterpret_cast<OSInfo*>(info_ptr);
+
+    memset(info, 0, sizeof(OSInfo));
+
+    unsigned int eax, ebx, ecx, edx;
+    char vendor[13];
+    __get_cpuid(0, &eax, &ebx, &ecx, &edx);
+
+    *((unsigned int*)&vendor[0]) = ebx;
+    *((unsigned int*)&vendor[4]) = edx;
+    *((unsigned int*)&vendor[8]) = ecx;
+    vendor[12] = '\0';
+
+    char brand[49];    memset(brand, 0, sizeof(brand));    
+    __get_cpuid(0x80000000, &eax, &ebx, &ecx, &edx);
+    if (eax >= 0x80000004) {
+        char* brand_ptr = brand;
+        for (unsigned int i = 0; i < 3; i++) {
+            unsigned int regs[4];
+            __get_cpuid(0x80000002 + i, &regs[0], &regs[1], &regs[2], &regs[3]);
+            memcpy(brand_ptr + i*16, regs, 16);
+        }
+        brand[48] = '\0';
+    } else {
+        char* strncpy(char* dest, const char* src, size_t n);
+        strncpy(brand, vendor, sizeof(brand)-1);
+        brand[sizeof(brand)-1] = '\0';
+    }
+
+    strncpyToUser(info->osname, "InstantOS", sizeof(info->osname));
+    strncpyToUser(info->loggedOnUser, "user", sizeof(info->loggedOnUser));
+    strncpyToUser(info->cpuname, brand, sizeof(info->cpuname));
+
+    char buf[16];
+    memset(buf, 0, sizeof(buf));
+    uitoa(pmm.getTotalMemory() / (1024 * 1024), buf, sizeof(buf));    strncpyToUser(info->maxRamGB, buf, sizeof(info->maxRamGB));
+    
+    uint64_t usedBytes = pmm.getTotalMemory() - pmm.getFreeMemory();
+    uint64_t usedMB = usedBytes / (1024 * 1024);    char buf2[16];
+    memset(buf2, 0, sizeof(buf2));
+    uitoa(usedMB, buf2, sizeof(buf2));
+    strncpyToUser(info->usedRamGB, buf2, sizeof(info->usedRamGB));
     
     return 0;
 }

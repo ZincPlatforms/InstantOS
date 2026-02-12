@@ -2,27 +2,36 @@
 
 #include <cstdint>
 
+struct OSInfo {
+    char osname[10];    char loggedOnUser[32];
+    char cpuname[64];
+    char maxRamGB[8];
+    char usedRamGB[8];
+};
+
 enum class SyscallNumber : uint64_t {
-    Exit = 0,
-    Write = 1,
-    Read = 2,
-    Open = 3,
-    Close = 4,
-    GetPID = 5,
-    Fork = 6,
-    Exec = 7,
-    Wait = 8,
-    Kill = 9,
-    Mmap = 10,
-    Munmap = 11,
-    Yield = 12,
-    Sleep = 13,
-    GetTime = 14,
-    Clear = 15,
-    FBInfo = 16,
-    FBMap = 17,
-    Signal = 18,
-    SigReturn = 19
+    OSInfo,
+    ProcInfo,
+    Exit,
+    Write,
+    Read,
+    Open,
+    Close,
+    GetPID,
+    Fork,
+    Exec,
+    Wait,
+    Kill,
+    Mmap,
+    Munmap,
+    Yield,
+    Sleep,
+    GetTime,
+    Clear,
+    FBInfo,
+    FBMap,
+    Signal,
+    SigReturn
 };
 
 struct SyscallFrame {
@@ -76,6 +85,7 @@ private:
     uint64_t sys_fb_map();
     uint64_t sys_signal(uint64_t sig, uint64_t handler);
     uint64_t sys_sigreturn();
+    uint64_t sys_osinfo(uint64_t info_ptr);
 };
 
 extern "C" void syscallEntry();
