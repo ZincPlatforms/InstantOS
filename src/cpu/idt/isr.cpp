@@ -23,7 +23,7 @@ extern "C" void exceptionHandler(InterruptFrame* frame) {
 
     if (frame->cs == 0x1B) {
         Process* current = Scheduler::get().getCurrentProcess();
-        
+
         if (console && current) {
             console->drawText("Process ");
             console->drawNumber(current->getPID());
@@ -33,17 +33,18 @@ extern "C" void exceptionHandler(InterruptFrame* frame) {
             console->drawText(" at RIP=");
             console->drawHex(frame->rip);
             console->drawText("\n");
+            for(;;);
         }
-        
+
         if (current) {
             if (frame->interrupt == 0x0E) {
                 current->sendSignal(SIGSEGV);
             } else {
                 current->sendSignal(SIGTERM);
             }
-            
+
             current->handlePendingSignals();
-            
+
             if (current->getState() == ProcessState::Terminated) {
                 Scheduler::get().schedule(frame);
             }
@@ -65,21 +66,20 @@ extern "C" void exceptionHandler(InterruptFrame* frame) {
         console->drawHex(frame->rsp);
         console->drawText("\n\t- CS: ");
         console->drawHex(frame->cs);
-        
+
         if (frame->interrupt == 0x0E) {
             uint64_t cr2;
             asm volatile("mov %%cr2, %0" : "=r"(cr2));
             console->drawText("\n\t- CR2: ");
             console->drawHex(cr2);
         }
-        
+
         console->drawText("\n\t- RAX: ");
         console->drawHex(frame->rax);
         console->drawText("\n\t- RBP: ");
         console->drawHex(frame->rbp);
     }
 
-    _bsod();
     while(1);
 }
 
@@ -95,7 +95,7 @@ extern "C" void irqHandler(InterruptFrame* frame) {
         LAPIC::get().sendEOI();
         return;
     }
-    
+
     Interrupt* handler = interruptHandlers[frame->interrupt];
     if (handler != nullptr) {
         handler->Run(frame);
