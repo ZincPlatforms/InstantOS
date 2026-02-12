@@ -4,8 +4,9 @@ PMM pmm;
 void PMM::init(uint8_t* bmpBuffer, uint64_t maxMemory) {
     availableMemory = maxMemory;
     pages = maxMemory / PAGE_SIZE;
-    usedMemory = 0;
-    freeMemory = maxMemory;
+    usedMemory = maxMemory;
+    reservedMemory = 0;
+    freeMemory = 0;
     
     bitmap.init(bmpBuffer, pages);
 
@@ -17,7 +18,7 @@ void* PMM::allocatePage() {
 
     size_t index = bitmap.findFirstFree();
     if (index >= pages) {
-        return nullptr;  // Out of memory
+        return nullptr;
     }
 
     bitmap.set(index);
@@ -32,7 +33,7 @@ void* PMM::allocatePages(size_t count) {
 
     size_t index = bitmap.findFirstFreeRegion(count);
     if (index >= pages) {
-        return nullptr;  // Not enough contigous memory
+        return nullptr;
     }
 
     bitmap.setRange(index, count);
@@ -50,7 +51,8 @@ void PMM::freePage(void* page) {
 
     if (bitmap.get(index)) {
         bitmap.clear(index);
-        usedMemory -= PAGE_SIZE;
+        if(usedMemory -PAGE_SIZE > 0)
+            usedMemory -= PAGE_SIZE;
         freeMemory += PAGE_SIZE;
     }
 }
@@ -64,7 +66,8 @@ void PMM::freePages(void* page, size_t count) {
     for (size_t i = 0; i < count; i++) {
         if (index + i < pages && bitmap.get(index + i)) {
             bitmap.clear(index + i);
-            usedMemory -= PAGE_SIZE;
+            if(usedMemory -PAGE_SIZE > 0)
+                usedMemory -= PAGE_SIZE;
             freeMemory += PAGE_SIZE;
         }
     }
@@ -78,8 +81,7 @@ void PMM::reservePage(void* page) {
 
     if (!bitmap.get(index)) {
         bitmap.set(index);
-        usedMemory += PAGE_SIZE;
-        freeMemory -= PAGE_SIZE;
+        reservedMemory += PAGE_SIZE;
     }
 }
 
@@ -93,8 +95,7 @@ void PMM::reservePages(void* page, size_t count) {
         if (index + i < pages) {
             if (!bitmap.get(index + i)) {
                 bitmap.set(index + i);
-                usedMemory += PAGE_SIZE;
-                freeMemory -= PAGE_SIZE;
+                reservedMemory += PAGE_SIZE;
             }
         }
     }

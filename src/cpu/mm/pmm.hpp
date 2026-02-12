@@ -24,6 +24,7 @@ public:
     uint64_t getTotalMemory() const { return availableMemory; }
     uint64_t getUsedMemory() const { return usedMemory; }
     uint64_t getFreeMemory() const { return freeMemory; }
+    uint64_t getReservedMemory() const { return reservedMemory; }
     size_t getPageCount() const { return pages; }
     
     bool isInitialized() const { return intialized; }
@@ -33,6 +34,7 @@ private:
     bool intialized;
 
     uint64_t availableMemory;
+    uint64_t reservedMemory;
     uint64_t usedMemory;
     uint64_t freeMemory;
     size_t pages;
