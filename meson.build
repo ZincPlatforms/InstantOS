@@ -61,8 +61,7 @@ inc_dirs_freestanding_cxx = include_directories(
   'freestanding/cxx/include',
 )
 
-subdir('outside/ilibc')
-subdir('outside/ilibcxx')
+subdir('ilibcxx')
 
 subdir('tools')
 subdir('userland')
@@ -86,9 +85,21 @@ kernel = custom_target('instant',
   install: false,
 )
 
+make_prog = find_program('make')
+limine_binary = custom_target('limine',
+  output: 'limine',
+  command: [
+    'sh', '-c',
+    make_prog.full_path() + ' -C ' + meson.current_source_dir() / 'outside/limine' + ' limine && cp ' + meson.current_source_dir() / 'outside/limine/limine' + ' @OUTPUT@'
+  ],
+  build_by_default: true,
+  install: false,
+  console: true,
+)
+
 if xorriso.found()
   iso = custom_target('iso',
-    input: [kernel, initrd],
+    input: [kernel, initrd, limine_binary],
     output: 'instant.iso',
     command: [
       find_program('scripts/make_iso.sh'),
@@ -97,7 +108,67 @@ if xorriso.found()
       '@INPUT1@',
       meson.current_source_dir(),
       iso_root,
+      '@INPUT2@',
+    ],
+    depends: [limine_binary],
+    build_by_default: true,
+    install: false,
+    console: true,
+  )
+
+  qemu = find_program('qemu-system-x86_64', required: false)
+  if qemu.found()
+    run_qemu = custom_target('run',
+      input: [iso],
+      output: 'qemu_run.log',
+      command: [
+        qemu,
+        '-cdrom', '@INPUT@',
+        '-m', '256M',
+        '-enable-kvm',
+        '-cpu', 'host',
+        '-serial', 'stdio',
+      ],
+      build_by_default: false,
+      console: true,
+    )
+
+    run_qemu_debug = custom_target('debug',
+      input: [iso],
+      output: 'qemu_debug.log',
+      command: [
+        qemu,
+        '-cdrom', '@INPUT@',
+        '-m', '256M',
+        '-enable-kvm',
+        '-serial', 'stdio',
+        '-no-reboot',
+        '-no-shutdown',
+        '-s', '-S'
+      ],
+      build_by_default: false,
+      console: true,
+    )
+
+    message('QEMU targets available:')
+    message('  meson compile -C build run    - Run InstantOS in QEMU')
+    message('  meson compile -C build debug  - Run InstantOS in QEMU with GDB server')
+  else
+    message('QEMU not found - run targets disabled')
+  endif
+
+  alias_target('everything', [kernel, initrd, limine_binary, iso])
+else
+  alias_target('everything', [kernel, initrd, limine_binary])
+
+  limine_clean = custom_target('clean-limine',
+    output: 'limine_clean.log',
+    command: [
+      make_prog,
+      '-C', meson.current_source_dir() / 'outside/limine',
+      'clean'
     ],
     build_by_default: false,
+    console: true,
   )
 endif
