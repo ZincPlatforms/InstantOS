@@ -8,7 +8,7 @@
 extern Console* console;
 extern "C" void enterUsermode(uint64_t entry, uint64_t stack);
 
-constexpr uint64_t USER_STACK_TOP = 0x00007FFFFFFFE000;  // Top of canonical user space
+constexpr uint64_t USER_STACK_TOP = 0x00007FFFFFFFE000;
 constexpr size_t USER_STACK_PAGES = 4;
 
 Process::Process(uint32_t pid) : pid(pid), parentPID(0), next(nullptr), exitCode(0), state(ProcessState::Ready), kernelStack(0), userStack(0), fpuState(nullptr), validUserState(false) {
@@ -37,8 +37,7 @@ Process::Process(uint32_t pid) : pid(pid), parentPID(0), next(nullptr), exitCode
     if (ustackPhys) {
         uint64_t ustackBase = USER_STACK_TOP - (USER_STACK_PAGES * PAGE_SIZE);
         vmm.mapRange(reinterpret_cast<void*>(ustackBase), ustackPhys, USER_STACK_PAGES, PTE_PRESENT | PTE_WRITABLE | PTE_USER);
-        userStack = USER_STACK_TOP - 8;  // Start 8 bytes below top (inside mapped region)
-    }
+        userStack = USER_STACK_TOP - 8;    }
     
     void* fpuPhys = pmm.allocatePage();
     if (fpuPhys) {

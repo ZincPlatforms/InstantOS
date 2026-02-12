@@ -21,7 +21,7 @@ public:
     
     void schedule();
     void schedule(struct InterruptFrame* frame);
-    void scheduleFromSyscall();  // Special version that doesn't save old context
+    void scheduleFromSyscall();
     void yield();
     
     uint32_t allocatePID();
