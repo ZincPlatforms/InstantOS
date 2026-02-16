@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 
 struct OSInfo {
     char osname[10];
