@@ -5,6 +5,7 @@
 
 PageTable* VMM::s_pml4        = nullptr;
 bool       VMM::s_initialized = false;
+uint64_t   VMM::s_directMapBase = 0;
 
 // Returns true if `frame` is the kernel master page table (s_pml4) itself or
 // one of its directly-referenced sub-tables (PDPT/PD/PT). Used by free_table()
@@ -51,7 +52,13 @@ static PageTable* alloc_zeroed_table() {
     // (observed as an infinite loop in kfree() while tearing down a forked
     // address space). PMM frames are the natural home for page tables and avoid
     // this class of bug entirely. free_table() mirrors this via PMM::FreeFrame.
-    uint64_t frame = PMM::AllocFrame();
+    // Allocate page-table frames above the non-PIE user-image window so that
+    // both zeroing them here and the kernel's later software page-table walks
+    // (all via the low identity map) are never shadowed by a low ET_EXEC image
+    // in the active address space. Fall back to a normal frame if no high frame
+    // is available (small-memory configs / degraded operation).
+    uint64_t frame = PMM::AllocFramesAbove(1, PMM::KERNEL_HIGH_ALLOC_MIN);
+    if (frame == 0) frame = PMM::AllocFrame();
     if (frame == 0) return nullptr;
     PageTable* table = reinterpret_cast<PageTable*>(frame);
     if ((reinterpret_cast<uint64_t>(table) & (PAGE_SIZE - 1)) != 0) return nullptr;
@@ -64,10 +71,9 @@ static bool is_heap_table(PageTable* table) {
         return false;
     }
 
-    const uintptr_t base = heap_base();
-    const size_t size = heap_size();
-    const uintptr_t addr = reinterpret_cast<uintptr_t>(table);
-    return addr >= base && addr + sizeof(PageTable) <= base + size;
+    // Any heap arena (initial or grown) counts; a single 4 KiB allocation never
+    // straddles two arenas, so testing the base address is sufficient.
+    return heap_contains(table);
 }
 
 static void free_table(PageTable* table) {
@@ -208,6 +214,47 @@ void VMM::Initialize() {
     asm volatile("mov %0, %%cr3" : : "r"(reinterpret_cast<uint64_t>(s_pml4)) : "memory");
 
     s_initialized = true;
+}
+
+uint64_t VMM::DirectMapBase() {
+    return s_directMapBase;
+}
+
+uint64_t VMM::PhysToVirt(uint64_t phys) {
+    return s_directMapBase ? (s_directMapBase + phys) : phys;
+}
+
+uint64_t VMM::InitDirectMap() {
+    if (!s_pml4) return 0;
+    if (s_directMapBase) return s_directMapBase;
+
+    // Claim a free slot in the shared kernel half of the PML4 (256..510).
+    // Entries here are copied verbatim into every process address space by
+    // initializeAddressSpace(), so the map is inherited by all of them.
+    int idx = -1;
+    for (int i = 256; i < 511; ++i) {
+        if (!(s_pml4->entries[i] & Present)) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) return 0;
+
+    // A single PDPT of 512 * 1 GiB pages spans physical [0, 512 GiB) — far more
+    // than the PMM metadata (which always lives in low RAM) needs. Supervisor
+    // (no U/S) so user code can never reach it; NX so it never executes.
+    PageTable* pdpt = AllocTable();
+    if (!pdpt) return 0;
+    for (uint64_t i = 0; i < 512; ++i) {
+        pdpt->entries[i] = (i * 0x40000000ULL) | Present | ReadWrite | LargePage | NoExecute;
+    }
+
+    // Canonical high-half base VA for this PML4 index.
+    const uint64_t base = 0xFFFF000000000000ULL | (static_cast<uint64_t>(idx) << 39);
+    s_pml4->entries[idx] =
+        reinterpret_cast<uint64_t>(pdpt) | Present | ReadWrite | NoExecute | (1ULL << 9);
+    s_directMapBase = base;
+    return base;
 }
 
 void VMM::MapPage(uint64_t virtualAddr, uint64_t physAddr, uint64_t flags) {
@@ -516,6 +563,60 @@ bool VMM::ProtectRangeIn(PageTable* pml4, uint64_t virtualBase, uint64_t pageCou
             return false;
         }
     }
+    return true;
+}
+
+bool VMM::HandleCowFault(PageTable* pml4, uint64_t faultAddr) {
+    if (!pml4) return false;
+
+    const uint64_t va = faultAddr & ~0xFFFULL;
+
+    // Walk to the leaf PTE.  A COW page is always a 4 KiB leaf; any large page
+    // or missing level along the way means this is not a COW fault.
+    uint64_t pml4e = pml4->entries[PML4Index(va)];
+    if (!(pml4e & Present)) return false;
+    auto* pdpt = reinterpret_cast<PageTable*>(pml4e & ADDR_MASK);
+
+    uint64_t pdpte = pdpt->entries[PDPTIndex(va)];
+    if (!(pdpte & Present) || (pdpte & LargePage)) return false;
+    auto* pd = reinterpret_cast<PageTable*>(pdpte & ADDR_MASK);
+
+    uint64_t pde = pd->entries[PDIndex(va)];
+    if (!(pde & Present) || (pde & LargePage)) return false;
+    auto* pt = reinterpret_cast<PageTable*>(pde & ADDR_MASK);
+
+    const uint64_t pti = PTIndex(va);
+    const uint64_t pte = pt->entries[pti];
+    if (!(pte & Present) || !(pte & kCowPage)) return false;   // not a COW page
+
+    const uint64_t oldPhys  = pte & ADDR_MASK;
+    // Restore write permission and drop the COW marker; preserve all other bits.
+    const uint64_t newFlags = ((pte & ~ADDR_MASK) | ReadWrite) & ~kCowPage;
+
+    if (PMM::RefCount(oldPhys) <= 1) {
+        // We are the only referer left: reclaim the frame in place, no copy.
+        pt->entries[pti] = oldPhys | newFlags;
+        InvalidatePage(va);
+        return true;
+    }
+
+    uint64_t newPhys = PMM::AllocFrame();
+    if (!newPhys) return false;   // OOM: fall through to the fatal fault path
+
+    // Copy the shared page. Reach both frames through the higher-half direct
+    // map, NOT the low identity map: while a non-PIE (ET_EXEC) user image mapped
+    // at a low VA (e.g. 0x400000) is the active address space, the identity VA
+    // of a low frame is shadowed by that image, so a raw identity copy would
+    // read/write the user's image instead of the intended frame.
+    const uint64_t* srcW = reinterpret_cast<const uint64_t*>(PhysToVirt(oldPhys));
+    uint64_t*       dstW = reinterpret_cast<uint64_t*>(PhysToVirt(newPhys));
+    for (uint64_t i = 0; i < PAGE_SIZE / sizeof(uint64_t); i++) {
+        dstW[i] = srcW[i];
+    }
+
+    pt->entries[pti] = (newPhys & ADDR_MASK) | newFlags;
+    PMM::FreeFrame(oldPhys);       // release this space's reference to the shared frame
+    InvalidatePage(va);
     return true;
 }
 

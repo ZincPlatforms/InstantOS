@@ -19,6 +19,12 @@ enum PageFlags : uint64_t {
 
 static constexpr uint64_t ADDR_MASK = 0x000FFFFFFFFFF000ULL;
 
+// OS-available PTE bit (AVL) marking a copy-on-write leaf page: the page is
+// mapped read-only and shared (PMM refcount > 1); a write fault makes a private
+// writable copy.  Distinct from bit 9 (kPrivateTable, used for intermediate
+// table cloning in vmm.cpp) to avoid collisions.
+static constexpr uint64_t kCowPage = 1ULL << 10;
+
 struct PageTable {
     uint64_t entries[512];
 } __attribute__((aligned(4096)));
@@ -26,6 +32,18 @@ struct PageTable {
 class VMM {
 public:
     static void Initialize();
+
+    // Build a higher-half direct map (HHDM) of physical memory using 1 GiB
+    // supervisor pages, installed in the shared kernel half of the master PML4
+    // (so every address space inherits it). Kernel metadata reached through this
+    // map is immune to being shadowed by a low-VA user mapping (e.g. a non-PIE
+    // ET_EXEC image loaded at 0x400000): the same identity address in an active
+    // user address space can point at that user's image, so a raw identity
+    // access from the kernel would hit the wrong page. Returns the map's base
+    // VA (0 on failure). Idempotent.
+    static uint64_t InitDirectMap();
+    static uint64_t DirectMapBase();                 // 0 until InitDirectMap succeeds
+    static uint64_t PhysToVirt(uint64_t phys);       // phys -> direct-map VA (identity if no map)
 
     static void MapPage(uint64_t virtualAddr, uint64_t physAddr, uint64_t flags);
     static void UnmapPage(uint64_t virtualAddr);
@@ -46,6 +64,13 @@ public:
                              uint64_t pageCount, uint64_t flags);
     static bool ProtectPageIn(PageTable* pml4, uint64_t virtualAddr, uint64_t flags);
     static bool ProtectRangeIn(PageTable* pml4, uint64_t virtualBase, uint64_t pageCount, uint64_t flags);
+
+    // Copy-on-write page-fault service.  Called from the page-fault handler on a
+    // write to a present page.  If `faultAddr` lands on a kCowPage leaf, this
+    // gives the faulting address space a private writable copy (or takes the
+    // frame in place when it is the last referer) and returns true.  Returns
+    // false if the address is not a COW page (caller handles it as a real fault).
+    static bool HandleCowFault(PageTable* pml4, uint64_t faultAddr);
     static void UnmapPageFrom(PageTable* pml4, uint64_t virtualAddr);
     static void UnmapRangeFrom(PageTable* pml4, uint64_t virtualBase, uint64_t pageCount);
 
@@ -62,6 +87,7 @@ public:
 private:
     static PageTable* s_pml4;
     static bool       s_initialized;
+    static uint64_t   s_directMapBase;   // higher-half direct map base (0 = none)
 
     static void       InvalidatePage(uint64_t addr);
 

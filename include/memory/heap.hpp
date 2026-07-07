@@ -18,3 +18,4 @@ HeapStats heap_stats();
 bool heap_is_initialized();
 uintptr_t heap_base();
 size_t heap_size();
+bool heap_contains(const void* ptr);

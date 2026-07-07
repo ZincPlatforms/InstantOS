@@ -201,6 +201,8 @@ uint64_t  PMM::s_totalFrames = 0;
 uint64_t  PMM::s_usedFrames  = 0;
 uint64_t  PMM::s_usableFrames = 0;
 bool      PMM::s_initialized = false;
+uint16_t* PMM::s_refcount    = nullptr;
+uint64_t  PMM::s_allocCursor = 1;
 
 // ── Bit-manipulation helpers ──────────────────────────────────────────────
 void PMM::SetFrame(uint64_t frame) {
@@ -241,6 +243,12 @@ void PMM::Initialize(const MemoryMap& map, uint64_t kernelBase, uint64_t kernelS
     s_bitmapSize = (s_totalFrames + 63) / 64;
     uint64_t bitmapBytes = s_bitmapSize * sizeof(uint64_t);
 
+    // The refcount table lives immediately after the bitmap inside the same
+    // contiguous metadata block.  Reserve room for both when placing storage.
+    uint64_t bitmapBytesAligned = align_up(bitmapBytes, 64);
+    uint64_t refcountBytes = s_totalFrames * sizeof(uint16_t);
+    uint64_t metaBytes = bitmapBytesAligned + refcountBytes;
+
     uint64_t kernelStart = kernelBase & ~(PAGE_SIZE - 1);
     uint64_t kernelEnd = align_up(kernelBase + kernelSize, PAGE_SIZE);
     uint64_t mmapStart = reinterpret_cast<uint64_t>(map.regions) & ~(PAGE_SIZE - 1);
@@ -260,7 +268,7 @@ void PMM::Initialize(const MemoryMap& map, uint64_t kernelBase, uint64_t kernelS
         }
 
         uint64_t regionBytes = regionEnd - regionStart;
-        if (regionBytes < bitmapBytes) {
+        if (regionBytes < metaBytes) {
             continue;
         }
 
@@ -269,29 +277,29 @@ void PMM::Initialize(const MemoryMap& map, uint64_t kernelBase, uint64_t kernelS
             placementStart = PAGE_SIZE;
         }
 
-        if (placementStart > regionEnd || regionEnd - placementStart < bitmapBytes) {
+        if (placementStart > regionEnd || regionEnd - placementStart < metaBytes) {
             continue;
         }
 
-        if (ranges_overlap(placementStart, placementStart + bitmapBytes, kernelStart, kernelEnd)) {
+        if (ranges_overlap(placementStart, placementStart + metaBytes, kernelStart, kernelEnd)) {
             if (!range_contains(regionStart, regionEnd, kernelStart, kernelEnd)) {
                 continue;
             }
             placementStart = align_up(kernelEnd, PAGE_SIZE);
         }
 
-        if (placementStart > regionEnd || regionEnd - placementStart < bitmapBytes) {
+        if (placementStart > regionEnd || regionEnd - placementStart < metaBytes) {
             continue;
         }
 
-        if (ranges_overlap(placementStart, placementStart + bitmapBytes, mmapStart, mmapEnd)) {
+        if (ranges_overlap(placementStart, placementStart + metaBytes, mmapStart, mmapEnd)) {
             if (!range_contains(regionStart, regionEnd, mmapStart, mmapEnd)) {
                 continue;
             }
             placementStart = align_up(mmapEnd, PAGE_SIZE);
         }
 
-        if (placementStart > regionEnd || regionEnd - placementStart < bitmapBytes) {
+        if (placementStart > regionEnd || regionEnd - placementStart < metaBytes) {
             continue;
         }
 
@@ -301,6 +309,7 @@ void PMM::Initialize(const MemoryMap& map, uint64_t kernelBase, uint64_t kernelS
         }
 
         s_bitmap = reinterpret_cast<uint64_t*>(placementStart);
+        s_refcount = reinterpret_cast<uint16_t*>(placementStart + bitmapBytesAligned);
         break;
     }
 
@@ -361,9 +370,10 @@ void PMM::Initialize(const MemoryMap& map, uint64_t kernelBase, uint64_t kernelS
     g_mmapReservation.start = mmapStart;
     g_mmapReservation.end = mmapEnd ? mmapEnd - 1 : 0;
 
-    // Step 3c: reserve the PMM bitmap storage because it lives inside physical RAM.
+    // Step 3c: reserve the PMM metadata (bitmap + refcount table) because it
+    // lives inside physical RAM.
     uint64_t bitmapStart = reinterpret_cast<uint64_t>(s_bitmap) & ~(PAGE_SIZE - 1);
-    uint64_t bitmapEnd = align_up(reinterpret_cast<uint64_t>(s_bitmap) + bitmapBytes, PAGE_SIZE);
+    uint64_t bitmapEnd = align_up(reinterpret_cast<uint64_t>(s_bitmap) + metaBytes, PAGE_SIZE);
     uint64_t bitmapStartFrame = bitmapStart / PAGE_SIZE;
     uint64_t bitmapEndFrame = bitmapEnd / PAGE_SIZE;
     for (uint64_t frame = bitmapStartFrame; frame < bitmapEndFrame && frame < s_totalFrames; frame++) {
@@ -383,6 +393,14 @@ void PMM::Initialize(const MemoryMap& map, uint64_t kernelBase, uint64_t kernelS
     g_nullReservation.start = 0;
     g_nullReservation.end = PAGE_SIZE - 1;
 
+    // Step 4: initialize the reference-count table.  Every frame currently
+    // marked used gets a single owner; free frames get 0.  This single O(n)
+    // pass both zero-initializes and seeds the table.
+    for (uint64_t frame = 0; frame < s_totalFrames; frame++) {
+        s_refcount[frame] = TestFrame(frame) ? 1 : 0;
+    }
+
+    s_allocCursor = 1;  // Skip the null-guard frame.
     s_initialized = true;
 }
 
@@ -436,25 +454,41 @@ uint64_t PMM::FindContiguous(uint64_t count) {
 uint64_t PMM::AllocFrame() {
     if (!s_initialized) return 0;
 
-    uint64_t frame = FindFirstFree(1);  // Skip frame 0
+    // Next-fit: resume scanning from the cursor, then wrap to the front so
+    // frames freed below the cursor are still reused.
+    uint64_t frame = FindFirstFree(s_allocCursor);
+    if (frame == 0 && s_allocCursor > 1) {
+        frame = FindFirstFree(1);
+    }
     if (frame == 0) return 0;
 
     SetFrame(frame);
+    s_refcount[frame] = 1;
     s_usedFrames++;
+    s_allocCursor = frame + 1;
+    if (s_allocCursor >= s_totalFrames) s_allocCursor = 1;
     return frame * PAGE_SIZE;
 }
 
 // ── FreeFrame ─────────────────────────────────────────────────────────────
+// Refcount-aware: a shared frame is only released when its last reference
+// drops.  This makes address-space teardown and munmap copy-on-write safe.
 void PMM::FreeFrame(uint64_t physAddr) {
     if (!s_initialized) return;
 
     uint64_t frame = physAddr / PAGE_SIZE;
     if (frame == 0 || frame >= s_totalFrames) return;
+    if (!TestFrame(frame)) return;               // already free
 
-    if (TestFrame(frame)) {
-        ClearFrame(frame);
-        s_usedFrames--;
+    if (s_refcount[frame] == 0xFFFF) return;     // pinned (saturated) – never free
+    if (s_refcount[frame] > 1) {
+        s_refcount[frame]--;                     // still shared; keep the frame
+        return;
     }
+
+    s_refcount[frame] = 0;
+    ClearFrame(frame);
+    s_usedFrames--;
 }
 
 // ── AllocFrames ───────────────────────────────────────────────────────────
@@ -466,9 +500,44 @@ uint64_t PMM::AllocFrames(uint64_t count) {
 
     for (uint64_t f = start; f < start + count; f++) {
         SetFrame(f);
+        s_refcount[f] = 1;
         s_usedFrames++;
     }
     return start * PAGE_SIZE;
+}
+
+// ── AllocFramesAbove ──────────────────────────────────────────────────────
+// Contiguous allocation constrained to physical addresses >= minPhys. Used for
+// kernel metadata (heap arenas, page tables) that is reached through the low
+// identity map and must therefore stay clear of the non-PIE user image window
+// (see PMM::KERNEL_HIGH_ALLOC_MIN). Returns 0 if no qualifying run exists.
+uint64_t PMM::AllocFramesAbove(uint64_t count, uint64_t minPhys) {
+    if (!s_initialized || count == 0) return 0;
+
+    uint64_t frame = minPhys / PAGE_SIZE;
+    if (frame < 1) frame = 1;   // never hand out the null-guard frame
+
+    uint64_t runStart = 0;
+    uint64_t runLen = 0;
+    while (frame < s_totalFrames) {
+        if (!TestFrame(frame)) {
+            if (runLen == 0) runStart = frame;
+            runLen++;
+            if (runLen == count) {
+                for (uint64_t f = runStart; f < runStart + count; f++) {
+                    SetFrame(f);
+                    s_refcount[f] = 1;
+                    s_usedFrames++;
+                }
+                return runStart * PAGE_SIZE;
+            }
+            frame++;
+        } else {
+            runLen = 0;
+            frame++;
+        }
+    }
+    return 0;   // no contiguous run at/above minPhys
 }
 
 // ── FreeFrames ────────────────────────────────────────────────────────────
@@ -477,11 +546,38 @@ void PMM::FreeFrames(uint64_t physAddr, uint64_t count) {
 
     uint64_t startFrame = physAddr / PAGE_SIZE;
     for (uint64_t f = startFrame; f < startFrame + count && f < s_totalFrames; f++) {
-        if (TestFrame(f)) {
-            ClearFrame(f);
-            s_usedFrames--;
+        if (!TestFrame(f)) continue;
+        if (s_refcount[f] == 0xFFFF) continue;   // pinned
+        if (s_refcount[f] > 1) {
+            s_refcount[f]--;
+            continue;
         }
+        s_refcount[f] = 0;
+        ClearFrame(f);
+        s_usedFrames--;
     }
+}
+
+// ── Reference counting ─────────────────────────────────────────────────────
+void PMM::IncRef(uint64_t physAddr) {
+    if (!s_initialized) return;
+
+    uint64_t frame = physAddr / PAGE_SIZE;
+    if (frame == 0 || frame >= s_totalFrames) return;
+    if (!TestFrame(frame)) return;               // never share a free frame
+
+    if (s_refcount[frame] < 0xFFFF) {
+        s_refcount[frame]++;
+    }
+    // On saturation the frame becomes pinned (see FreeFrame) – leak-safe.
+}
+
+uint16_t PMM::RefCount(uint64_t physAddr) {
+    if (!s_initialized) return 0;
+
+    uint64_t frame = physAddr / PAGE_SIZE;
+    if (frame >= s_totalFrames) return 0;
+    return s_refcount[frame];
 }
 
 void PMM::ReserveRange(uint64_t physAddr, uint64_t bytes) {
@@ -507,6 +603,17 @@ void PMM::ReserveRange(uint64_t physAddr, uint64_t bytes) {
             s_usedFrames++;
         }
     }
+}
+
+void PMM::RelocateToDirectMap(uint64_t base) {
+    if (!s_initialized || base == 0) {
+        return;
+    }
+    // s_bitmap / s_refcount currently hold physical (identity) addresses; shift
+    // them into the direct map so every dereference lands on the shared kernel
+    // half rather than an identity VA a user image can shadow.
+    s_bitmap   = reinterpret_cast<uint64_t*>(base + reinterpret_cast<uint64_t>(s_bitmap));
+    s_refcount = reinterpret_cast<uint16_t*>(base + reinterpret_cast<uint64_t>(s_refcount));
 }
 
 void PMM::DumpReservations() {
