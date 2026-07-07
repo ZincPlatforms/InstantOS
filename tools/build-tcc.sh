@@ -11,7 +11,24 @@ LD="${LD:-ld.lld}"
 AR="${AR:-llvm-ar}"
 STRIP="${STRIP:-llvm-strip}"
 
-BUILD_DIR="${BUILD_DIR:-$ROOT/build}" TCC_SYSROOT="$TCC_SYSROOT" "$ROOT/tools/build-tcc-sysroot.sh"
+# Compile/link flag sets baked into the generated cc wrapper. Overridable so the
+# same script drives the clang cross (default) or the GCC cross
+# (tools/build-tcc-gcc.sh): the latter drops --target/-fuse-ld=lld and adds
+# GCC's freestanding include dir.
+TCC_WRAP_CFLAGS="${TCC_WRAP_CFLAGS:---target=x86_64-unknown-elf -fPIC -ffreestanding -fno-stack-protector -nostdinc -isystem $TCC_SYSROOT/include}"
+TCC_WRAP_LDFLAGS="${TCC_WRAP_LDFLAGS:--nostdlib -fuse-ld=lld -Wl,--gc-sections -Wl,--build-id=none -Wl,--hash-style=sysv -Wl,-z,max-page-size=0x1000 -pie -Wl,-e,_start -Wl,--dynamic-linker,/lib/ld-instantos.so}"
+# Space-separated -l tokens to strip from the final link (default none). The GCC
+# build sets "-lm -ldl": libinstant already provides those symbols, so linking
+# them would drag mlibc's libc.so/libdl.so into a libinstant binary.
+TCC_WRAP_DROP_LIBS="${TCC_WRAP_DROP_LIBS:-}"
+
+# Rebuild the libinstant tcc-sysroot unless told to reuse an existing one
+# (TCC_SKIP_SYSROOT=1) -- e.g. the GCC tcc build reuses the clang-built sysroot
+# and only recompiles tcc itself, so the sysroot builder must not inherit the
+# GCC CC/flags.
+if [ "${TCC_SKIP_SYSROOT:-0}" != "1" ]; then
+  BUILD_DIR="${BUILD_DIR:-$ROOT/build}" TCC_SYSROOT="$TCC_SYSROOT" "$ROOT/tools/build-tcc-sysroot.sh"
+fi
 
 if [ ! -f "$TCC_SOURCE_DIR/configure" ]; then
   printf 'tcc source not found: %s\n' "$TCC_SOURCE_DIR" >&2
@@ -53,30 +70,29 @@ done
 
 common=(
   "$CC"
-  --target=x86_64-unknown-elf
-  -fPIC
-  -ffreestanding
-  -fno-stack-protector
-  -nostdinc
-  -isystem "$TCC_SYSROOT/include"
+  $TCC_WRAP_CFLAGS
 )
 
 if [ "\$compile_only" = "1" ]; then
   exec "\${common[@]}" "\$@"
 fi
 
+# Strip mlibc-world libs (baked from TCC_WRAP_DROP_LIBS); libinstant provides
+# their symbols via -linstant below.
+drop="$TCC_WRAP_DROP_LIBS"
+link_args=()
+for a in "\$@"; do
+  skip=0
+  for d in \$drop; do
+    if [ "\$a" = "\$d" ]; then skip=1; break; fi
+  done
+  [ "\$skip" = "1" ] || link_args+=("\$a")
+done
+
 exec "\${common[@]}" \
-  -nostdlib \
-  -fuse-ld=lld \
-  -Wl,--gc-sections \
-  -Wl,--build-id=none \
-  -Wl,--hash-style=sysv \
-  -Wl,-z,max-page-size=0x1000 \
-  -pie \
-  -Wl,-e,_start \
-  -Wl,--dynamic-linker,/lib/ld-instantos.so \
+  $TCC_WRAP_LDFLAGS \
   "$TCC_SYSROOT/lib/crt0.o" \
-  "\$@" \
+  "\${link_args[@]}" \
   -L"$TCC_SYSROOT/lib" \
   -linstant
 EOF

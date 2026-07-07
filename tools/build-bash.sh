@@ -29,9 +29,11 @@ if [ ! -f "$MLIBC_ROOT/include/sys/ioctl.h" ]; then
   exit 2
 fi
 
-# Target (mlibc, freestanding, PIE) compile/link flags.
-TARGET_CFLAGS="--target=x86_64-unknown-elf -ffreestanding -fPIE -fno-stack-protector -nostdlibinc -isystem $MLIBC_ROOT/include -D_GNU_SOURCE -Wno-implicit-function-declaration -fcommon"
-TARGET_LDFLAGS="--target=x86_64-unknown-elf -pie -nostdlib -fuse-ld=lld -L$MLIBC_ROOT/lib -Wl,--dynamic-linker,/lib/mlibc/ld-instantos.so -Wl,-rpath,/lib/mlibc -Wl,--allow-multiple-definition $MLIBC_ROOT/lib/crt1.o"
+# Target (mlibc, freestanding, PIE) compile/link flags. Overridable via env so
+# the same script can drive either the clang cross (default) or the GCC cross
+# (see tools/build-bash-gcc.sh).
+TARGET_CFLAGS="${TARGET_CFLAGS:---target=x86_64-unknown-elf -ffreestanding -fPIE -fno-stack-protector -nostdlibinc -isystem $MLIBC_ROOT/include -D_GNU_SOURCE -Wno-implicit-function-declaration -fcommon}"
+TARGET_LDFLAGS="${TARGET_LDFLAGS:---target=x86_64-unknown-elf -pie -nostdlib -fuse-ld=lld -L$MLIBC_ROOT/lib -Wl,--dynamic-linker,/lib/mlibc/ld-instantos.so -Wl,-rpath,/lib/mlibc -Wl,--allow-multiple-definition $MLIBC_ROOT/lib/crt1.o}"
 # Host build-tool flags: bash builds mkbuiltins/mksignames on the host; gcc>=14
 # defaults to C23 which rejects bash's K&R prototypes.
 BUILD_CFLAGS="-g -DCROSS_COMPILING -std=gnu89 -Wno-implicit-function-declaration -Wno-implicit-int"
