@@ -56,6 +56,7 @@ static constexpr uint64_t DynamicFlags1Now = 0x1;
 
 static constexpr uint32_t RelocationX86_64None = 0;
 static constexpr uint32_t RelocationX86_64_64 = 1;
+static constexpr uint32_t RelocationX86_64Copy = 5;
 static constexpr uint32_t RelocationX86_64GlobDat = 6;
 static constexpr uint32_t RelocationX86_64JumpSlot = 7;
 static constexpr uint32_t RelocationX86_64Relative = 8;
