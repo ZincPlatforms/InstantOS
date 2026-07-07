@@ -7,6 +7,8 @@
 #include "fs/ahci/ahci.hpp"
 #include "fs/ahci/detect.hpp"
 #include "fs/fat32/fat32.hpp"
+#include "fs/ext4/ext4.hpp"
+#include "fs/ext4/ext4_selftest.hpp"
 #include "fs/partition/partition.hpp"
 #include "fs/ramfs/ramfs.hpp"
 #include <fs/storage/storage.hpp>
@@ -787,13 +789,33 @@ extern "C" void InstantOS(BootInfo* bootInfo) {
 #endif
     
     VMM::Initialize();
+
+    // Build the higher-half direct map and move the PMM bitmap/refcount onto it
+    // BEFORE the first user process is created. Otherwise a large non-PIE
+    // ET_EXEC image (e.g. gcc's 36 MiB cc1 mapped at VA 0x400000) shadows the
+    // identity address of the PMM metadata, and any frame alloc/free performed
+    // by the kernel while that address space is active writes to the user image
+    // (a read-only page) instead of the bitmap -> fault cascade / crash.
+    {
+        uint64_t hhdm = VMM::InitDirectMap();
+        if (hhdm) {
+            PMM::RelocateToDirectMap(hhdm);
+        }
+    }
 #ifdef INSTANTOS_BOOT_SPINNER
     bootSpinner.step();
 #endif
     
     size_t heapSize = 0x1000000; // 16 MiB initial heap
     uint64_t heapPages = (heapSize + PMM::PAGE_SIZE - 1) / PMM::PAGE_SIZE;
-    void* heapBase = reinterpret_cast<void*>(PMM::AllocFrames(heapPages));
+    // Place the heap above the non-PIE user-image window so kmalloc'd data
+    // (accessed through the low identity map) is never shadowed by a low
+    // ET_EXEC image in the active address space. Fall back to a normal
+    // allocation on memory-constrained configs.
+    void* heapBase = reinterpret_cast<void*>(PMM::AllocFramesAbove(heapPages, PMM::KERNEL_HIGH_ALLOC_MIN));
+    if (!heapBase) {
+        heapBase = reinterpret_cast<void*>(PMM::AllocFrames(heapPages));
+    }
     if (!heapBase) {
         Console::get().drawText("Heap: [ ");
         Console::get().setTextColor(0xFF0000);
@@ -972,9 +994,42 @@ extern "C" void InstantOS(BootInfo* bootInfo) {
             uint64_t partStart = 0;
             uint64_t partLength = 0;
             uint8_t partType = 0;
-            if (mbrFindFatPartition(device, &partStart, &partLength, &partType)) {
+            bool gptLinux = false;
+
+            // Choose the root filesystem device. UEFI disks are GPT, so try GPT
+            // first (preferring a Linux-typed partition, i.e. the ext4 root);
+            // then a legacy MBR partition (FAT or Linux/ext*); finally accept an
+            // unpartitioned ("superfloppy") ext4 volume spanning the whole disk.
+            BlockDevice* fsDevice = nullptr;
+            bool wholeDisk = false;
+            if (gptFindPartition(device, &partStart, &partLength, &gptLinux)) {
+                static PartitionBlockDevice _gptPartition(device, partStart, partLength);
+                fsDevice = &_gptPartition;
+                Console::get().drawText("[GPT] partition lbaStart=");
+                Console::get().drawNumber((int64_t)(partStart / 512));
+                Console::get().drawText(gptLinux ? " type=Linux\n" : " type=other\n");
+            } else if (mbrFindPartition(device, &partStart, &partLength, &partType)) {
                 static PartitionBlockDevice _partition(device, partStart, partLength);
-                static FAT32FS _fs(&_partition);
+                fsDevice = &_partition;
+            } else if (Ext4FS::probe(device)) {
+                fsDevice = device;
+                wholeDisk = true;
+            }
+
+            if (fsDevice && Ext4FS::probe(fsDevice)) {
+                static Ext4FS _ext4(fsDevice);
+                int mountResult = VFS::get().mount(&_ext4, "/");
+                KernelStorage::setMount("/", "ext4", mountResult);
+                Console::get().drawText("Filesystem mounted (ext4): [ ");
+                Console::get().setTextColor(mountResult == 0 ? 0x49ceee : 0xFF0000);
+                Console::get().drawText(mountResult == 0 ? "OK" : "FAIL");
+                Console::get().setTextColor(0xFFFFFF);
+                Console::get().drawText(" ]\n");
+                if (mountResult == 0) {
+                    ext4RunSelfTest();
+                }
+            } else if (fsDevice && !wholeDisk) {
+                static FAT32FS _fs(fsDevice);
                 fs = &_fs;
                 int mountResult = VFS::get().mount(fs, "/");
                 KernelStorage::setMount("/", "fat32", mountResult);
