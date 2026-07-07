@@ -83,6 +83,33 @@ void printStackTrace(uint64_t rbp, uint64_t rip) {
 }
 
 extern "C" void exceptionHandler(InterruptFrame* frame) {
+    // Copy-on-write fast path: a write to a *present* page (err bits P|W set)
+    // that lands on a COW-marked leaf is resolved by handing the faulting
+    // address space a private writable copy, then resuming the instruction.
+    // Works for both user faults and kernel-side writes (e.g. copyToUser).
+    if (frame->interrupt == 0x0E && (frame->errCode & 0x3) == 0x3) {
+        uint64_t cr2;
+        asm volatile("mov %%cr2, %0" : "=r"(cr2));
+        Process* faulting = Scheduler::get().getCurrentProcess();
+        if (faulting && faulting->getPageTable() &&
+            VMM::HandleCowFault(faulting->getPageTable(), cr2)) {
+            return;   // fault serviced; re-execute the faulting instruction
+        }
+    }
+
+    // Demand paging: a not-present fault (err bit 0 == 0) on a lazily-reserved
+    // mmap region is populated with a fresh zero page on first touch. Handles
+    // both user faults and kernel-side accesses (copyToUser, driver reads) into
+    // demand-paged buffers.
+    if (frame->interrupt == 0x0E && (frame->errCode & 0x1) == 0) {
+        uint64_t cr2;
+        asm volatile("mov %%cr2, %0" : "=r"(cr2));
+        Process* faulting = Scheduler::get().getCurrentProcess();
+        if (faulting && faulting->handleDemandFault(cr2)) {
+            return;   // page populated; re-execute the faulting instruction
+        }
+    }
+
     const char* exception_names[] = {
         "Division By Zero", "Debug", "Non-Maskable Interrupt", "Breakpoint",
         "Overflow", "Bound Range Exceeded", "Unknown Instruction", "Device Not Available",
@@ -122,10 +149,28 @@ extern "C" void exceptionHandler(InterruptFrame* frame) {
                 Console::get().drawText("\n");
             }
             Debug::printCurrentProcessSyscall();
+
+            // Dump the user stack top + a frame walk. For an indirect/NULL call
+            // the return address the CALL just pushed is at [rsp], which points
+            // straight at the calling code (crucial when rip=0). Runs in the
+            // faulting process's address space, so user addresses are mapped.
+            Console::get().drawText("rsp: ");
+            Console::get().drawHex(frame->rsp);
+            for (int i = 0; i < 6; i++) {
+                uint64_t addr = frame->rsp + static_cast<uint64_t>(i) * 8;
+                if (!VMM::IsMapped(addr)) break;
+                Console::get().drawText("\n  [rsp+");
+                Console::get().drawNumber(i * 8);
+                Console::get().drawText("]=");
+                Console::get().drawHex(*reinterpret_cast<uint64_t*>(addr));
+            }
+            Console::get().drawText("\n");
+            printStackTrace(frame->rbp, frame->rip);
         }
 
         if (current) {
             current->setExitCode(128 + ((frame->interrupt == 0x0E) ? SIGSEGV : SIGTERM));
+            current->closeFilesOnExit();
             current->setState(ProcessState::Terminated);
             current->setValidUserState(false);
             Scheduler::get().schedule(frame);
