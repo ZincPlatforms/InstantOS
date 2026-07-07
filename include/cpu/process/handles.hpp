@@ -58,6 +58,10 @@ public:
   bool close(uint64_t handle);
   bool close(uint64_t handle, HandleType expectedType);
   void closeAll();
+  // Close only File-type handles (regular files, pipes, sockets, ptys). Used at
+  // process termination to release file descriptions (e.g. pipe write ends)
+  // without disturbing non-file handles (IPC/shmem) that have separate cleanup.
+  void closeAllFiles();
 
   HandleEntry* get(uint64_t handle);
   const HandleEntry* get(uint64_t handle) const;

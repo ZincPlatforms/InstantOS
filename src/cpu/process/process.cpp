@@ -40,14 +40,30 @@ bool defaultIgnoredSignal(int sig) {
 }
 }
 
+// A demand-paged memory region (VMA). Held in a sorted singly-linked list per
+// address space; frames are populated lazily on page fault. When `file` is null
+// the region is anonymous (zero-filled). When `file` is set the region is
+// demand-paged from that file, and MAP_SHARED regions are written back.
+struct VmaRegion {
+    uint64_t start;         // inclusive, page-aligned
+    uint64_t end;           // exclusive, page-aligned
+    uint64_t prot;          // MemoryProt* bits (0 == inaccessible / PROT_NONE)
+    FileDescriptor* file;   // nullptr => anonymous; else backing file (retained)
+    uint64_t fileOffset;    // file byte offset mapped at `start`
+    uint64_t fileLength;    // bytes from fileOffset sourced from the file (EOF clamp)
+    bool shared;            // MAP_SHARED (write back) vs MAP_PRIVATE (copy)
+    VmaRegion* next;
+};
+
 struct ProcessSharedState {
     PageTable* pageTable;
     HandleTable handleTable;
     uint64_t mmapBase;
     uint32_t refCount;
+    VmaRegion* vmaList;   // demand-paged mmap regions, sorted by start
 
     ProcessSharedState()
-        : pageTable(nullptr), mmapBase(0x0000600000000000UL), refCount(1) {}
+        : pageTable(nullptr), mmapBase(0x0000600000000000UL), refCount(1), vmaList(nullptr) {}
 };
 
 namespace {
@@ -56,6 +72,41 @@ constexpr uint64_t kKernelStackSize = 4 * PAGE_SIZE;
 
 uint64_t alignUp(uint64_t value, uint64_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
+}
+
+// Write back every present page of a writable MAP_SHARED file region to its
+// backing file. Conservative: it flushes all present pages (the PTE dirty bit
+// is not surfaced by VirtualToPhysicalIn), which is correct — a clean page just
+// rewrites identical bytes. No-op for anonymous, read-only, or private regions.
+// The physical frame is reached through the kernel's identity map, as in
+// handleDemandFault().
+void vmaWritebackRegion(PageTable* pageTable, VmaRegion* r) {
+    if (!pageTable || !r || !r->file || !r->shared || !(r->prot & MemoryProtWrite)) {
+        return;
+    }
+    VNode* node = r->file->getNode();
+    if (!node || !node->ops || !node->ops->write) {
+        return;
+    }
+    const uint64_t mappedEnd = r->fileOffset + r->fileLength;
+    for (uint64_t va = r->start; va < r->end; va += PAGE_SIZE) {
+        uint64_t pa = VMM::VirtualToPhysicalIn(pageTable, va);
+        if (!pa) {
+            continue;   // never faulted in -> nothing dirty here
+        }
+        pa &= ~0xFFFULL;
+        const uint64_t filePos = r->fileOffset + (va - r->start);
+        if (filePos >= mappedEnd) {
+            continue;   // page lies past the file-backed window
+        }
+        uint64_t n = mappedEnd - filePos;
+        if (n > PAGE_SIZE) {
+            n = PAGE_SIZE;
+        }
+        // Read the frame through the higher-half direct map, not the low
+        // identity map (which a non-PIE user image can shadow while active).
+        node->ops->write(node, reinterpret_cast<void*>(VMM::PhysToVirt(pa)), n, filePos);
+    }
 }
 
 void retainSharedState(ProcessSharedState* state) {
@@ -74,9 +125,27 @@ void releaseSharedState(ProcessSharedState* state) {
     }
 
     state->handleTable.closeAll();
+    // Flush dirty MAP_SHARED file mappings while the address space (and its
+    // frames) are still live. The region keeps its own reference to the backing
+    // file, so it survives handleTable.closeAll() above.
     if (state->pageTable) {
+        for (VmaRegion* r = state->vmaList; r; r = r->next) {
+            vmaWritebackRegion(state->pageTable, r);
+        }
         VMM::FreeAddressSpace(state->pageTable);
     }
+    // Release demand-paged region records (the frames themselves were reclaimed
+    // by FreeAddressSpace above) and drop each region's backing-file reference.
+    VmaRegion* v = state->vmaList;
+    while (v) {
+        VmaRegion* next = v->next;
+        if (v->file) {
+            VFS::get().close(v->file);
+        }
+        delete v;
+        v = next;
+    }
+    state->vmaList = nullptr;
     delete state;
 }
 
@@ -119,10 +188,22 @@ bool initializeAddressSpace(ProcessSharedState* state) {
                 return false;
             }
 
+            // Copy the kernel PDPT's entries, but CLEAR the "private table" bit
+            // (1<<9): those entries still point at the KERNEL's shared PD/PT
+            // structures, not tables private to this address space. If the bit
+            // were left set, clone_table_if_needed() would skip copy-on-write and
+            // let MapPageInto() mutate the shared kernel identity map (splitting a
+            // huge page / adding a leaf), corrupting it for everyone -- observed
+            // as garbage in freshly-loaded non-PIE (ET_EXEC) images at low VAs,
+            // whose low-VA mappings force exactly such splits.
+            constexpr uint64_t kPrivateTable = 1ULL << 9;
             for (int j = 0; j < 512; j++) {
-                newPdpt->entries[j] = srcPdpt->entries[j];
+                newPdpt->entries[j] = srcPdpt->entries[j] & ~kPrivateTable;
             }
-            state->pageTable->entries[i] = reinterpret_cast<uint64_t>(newPdpt) | (kPml4->entries[i] & ~ADDR_MASK);
+            // newPdpt itself IS private to this address space; mark it so it is
+            // not needlessly re-cloned on first write.
+            state->pageTable->entries[i] =
+                reinterpret_cast<uint64_t>(newPdpt) | (kPml4->entries[i] & ~ADDR_MASK) | kPrivateTable;
         }
     }
 
@@ -436,13 +517,55 @@ bool Process::cloneAddressSpaceFrom(Process* parent) {
                     const uint64_t srcPhys = pte & ADDR_MASK;
                     const uint64_t flags = pte & ~ADDR_MASK;
 
-                    uint64_t newPhys = PMM::AllocFrames(1);
-                    if (!newPhys) {
-                        return false;
+                    // The user stack is eagerly copied: it is small and, for
+                    // first-generation processes, heap-backed (kmalloc), which
+                    // must never enter the PMM copy-on-write refcount scheme
+                    // (the destructor kfree()s it by virtual->physical lookup).
+                    const bool inStack = userStackSize &&
+                        vaddr >= userStackBase &&
+                        vaddr < userStackBase + userStackSize;
+
+                    // A page participates in COW if it is writable now, or is
+                    // already a shared COW page from an earlier fork generation.
+                    const bool cowShare = (flags & ReadWrite) || (flags & kCowPage);
+
+                    if (inStack) {
+                        // Private eager copy (legacy behavior for the stack).
+                        uint64_t newPhys = PMM::AllocFrames(1);
+                        if (!newPhys) {
+                            return false;
+                        }
+                        // Copy through the higher-half direct map, not the low
+                        // identity map: the parent may be a non-PIE (ET_EXEC)
+                        // image mapped at a low VA, whose image shadows the
+                        // identity VA of these frames in the active address
+                        // space, so a raw identity copy would hit the user image
+                        // instead of the stack frame (observed: write fault on a
+                        // read-only user page during fork).
+                        memcpy(reinterpret_cast<void*>(VMM::PhysToVirt(newPhys)),
+                               reinterpret_cast<const void*>(VMM::PhysToVirt(srcPhys)), PAGE_SIZE);
+                        VMM::MapPageInto(childPml4, vaddr, newPhys, flags);
+                    } else if (cowShare) {
+                        // Copy-on-write share. Downgrade the parent to read-only
+                        // COW only if it is currently writable (an already-COW
+                        // parent stays as-is). Map the child with writable upper
+                        // tables (so a later COW write is not blocked by a
+                        // read-only intermediate entry) but a read-only COW leaf.
+                        if (flags & ReadWrite) {
+                            parentPt->entries[l] = (pte & ~ReadWrite) | kCowPage;
+                        }
+                        VMM::MapPageInto(childPml4, vaddr, srcPhys, flags | ReadWrite);
+                        if (!VMM::ProtectPageIn(childPml4, vaddr,
+                                                (flags & ~ReadWrite) | kCowPage)) {
+                            return false;
+                        }
+                        PMM::IncRef(srcPhys);
+                    } else {
+                        // Genuine read-only page (e.g. code/rodata): share the
+                        // frame directly. A write faults to SIGSEGV as expected.
+                        VMM::MapPageInto(childPml4, vaddr, srcPhys, flags);
+                        PMM::IncRef(srcPhys);
                     }
-                    memcpy(reinterpret_cast<void*>(newPhys),
-                           reinterpret_cast<const void*>(srcPhys), PAGE_SIZE);
-                    VMM::MapPageInto(childPml4, vaddr, newPhys, flags);
                 }
             }
         }
@@ -516,6 +639,307 @@ uint64_t Process::reserveMmapRegion(uint64_t size) {
     return base;
 }
 
+// ── Demand-paged mmap region bookkeeping ───────────────────────────────────
+namespace {
+// Convert MemoryProt* bits to leaf page flags for a demand-filled user page.
+// A prot of 0 (PROT_NONE) is treated as read/write: userspace (mlibc's
+// allocator) reserves address space with PROT_NONE and writes into it without
+// an explicit commit, relying on the historical mmap behavior where reserved
+// pages were always accessible. Explicit PROT_READ/PROT_EXEC are honored.
+uint64_t vmaPageFlags(uint64_t prot) {
+    if (prot == 0) {
+        prot = MemoryProtRead | MemoryProtWrite;
+    }
+    uint64_t flags = Present | UserSuper;
+    if (prot & MemoryProtWrite) {
+        flags |= ReadWrite;
+    }
+    if ((prot & MemoryProtExecute) == 0) {
+        flags |= NoExecute;
+    }
+    return flags;
+}
+
+// Ensure no region straddles `addr`: if one does, split it in two at `addr`.
+bool vmaSplitAt(VmaRegion*& list, uint64_t addr) {
+    for (VmaRegion* r = list; r; r = r->next) {
+        if (addr > r->start && addr < r->end) {
+            const uint64_t delta = addr - r->start;
+            VmaRegion* tail = new VmaRegion{};
+            if (!tail) return false;
+            tail->start = addr;
+            tail->end = r->end;
+            tail->prot = r->prot;
+            tail->file = r->file;
+            tail->shared = r->shared;
+            // The file window splits at `delta`: the tail starts that far in.
+            tail->fileOffset = r->fileOffset + delta;
+            tail->fileLength = (r->fileLength > delta) ? (r->fileLength - delta) : 0;
+            tail->next = r->next;
+            // Both halves now reference the same backing file: take a second ref.
+            if (r->file) {
+                VFS::get().retain(r->file);
+                if (r->fileLength > delta) {
+                    r->fileLength = delta;
+                }
+            }
+            r->end = addr;
+            r->next = tail;
+            return true;
+        }
+    }
+    return true;
+}
+}
+
+bool Process::mmapAddRegion(uint64_t start, uint64_t length, uint64_t prot) {
+    if (!sharedState || length == 0) {
+        return false;
+    }
+
+    const uint64_t end = start + length;
+    // Drop any existing coverage first (MAP_FIXED / re-reservation semantics).
+    mmapRemoveRange(start, length);
+
+    VmaRegion* node = new VmaRegion{};
+    if (!node) {
+        return false;
+    }
+    node->start = start;
+    node->end = end;
+    node->prot = prot;
+    node->file = nullptr;
+    node->fileOffset = 0;
+    node->fileLength = 0;
+    node->shared = false;
+
+    // Insert keeping the list sorted by start address.
+    VmaRegion** link = &sharedState->vmaList;
+    while (*link && (*link)->start < start) {
+        link = &(*link)->next;
+    }
+    node->next = *link;
+    *link = node;
+    return true;
+}
+
+bool Process::mmapAddFileRegion(uint64_t start, uint64_t length, uint64_t prot,
+                                FileDescriptor* file, uint64_t fileOffset,
+                                uint64_t fileLength, bool shared) {
+    if (!sharedState || length == 0) {
+        return false;
+    }
+
+    const uint64_t end = start + length;
+    // Drop any existing coverage first (MAP_FIXED / re-reservation semantics).
+    // mmapRemoveRange writes back and releases any shared file mapping it evicts.
+    mmapRemoveRange(start, length);
+
+    VmaRegion* node = new VmaRegion{};
+    if (!node) {
+        return false;
+    }
+    node->start = start;
+    node->end = end;
+    node->prot = prot;
+    node->file = file;
+    node->fileOffset = fileOffset;
+    node->fileLength = fileLength;
+    node->shared = shared;
+    if (file) {
+        VFS::get().retain(file);   // the region owns a reference until dropped
+    }
+
+    // Insert keeping the list sorted by start address.
+    VmaRegion** link = &sharedState->vmaList;
+    while (*link && (*link)->start < start) {
+        link = &(*link)->next;
+    }
+    node->next = *link;
+    *link = node;
+    return true;
+}
+
+void Process::mmapRemoveRange(uint64_t start, uint64_t length) {
+    if (!sharedState || length == 0) {
+        return;
+    }
+
+    const uint64_t end = start + length;
+    // Split so no region straddles the range boundaries, then drop whole nodes.
+    vmaSplitAt(sharedState->vmaList, start);
+    vmaSplitAt(sharedState->vmaList, end);
+
+    VmaRegion** link = &sharedState->vmaList;
+    while (*link) {
+        VmaRegion* r = *link;
+        if (r->start >= start && r->end <= end) {
+            *link = r->next;
+            // Drop this region's backing-file reference. Callers that need the
+            // contents flushed (munmap, MAP_FIXED replace) run mmapSyncRange()
+            // before the frames are unmapped, so no writeback is needed here.
+            if (r->file) {
+                VFS::get().close(r->file);
+            }
+            delete r;
+        } else {
+            link = &r->next;
+        }
+    }
+}
+
+bool Process::mmapProtectRange(uint64_t start, uint64_t length, uint64_t prot) {
+    if (!sharedState || length == 0) {
+        return false;
+    }
+
+    const uint64_t end = start + length;
+    if (!vmaSplitAt(sharedState->vmaList, start)) return false;
+    if (!vmaSplitAt(sharedState->vmaList, end)) return false;
+
+    for (VmaRegion* r = sharedState->vmaList; r; r = r->next) {
+        if (r->start >= start && r->end <= end) {
+            r->prot = prot;
+        }
+    }
+    return true;
+}
+
+void Process::mmapSyncRange(uint64_t start, uint64_t length) {
+    if (!sharedState || !sharedState->pageTable || length == 0) {
+        return;
+    }
+    const uint64_t end = start + length;
+    // Flush every writable MAP_SHARED file region overlapping the range. Whole
+    // overlapping regions are written back (a superset of the requested window,
+    // which is always correct).
+    for (VmaRegion* r = sharedState->vmaList; r; r = r->next) {
+        if (r->start < end && r->end > start) {
+            vmaWritebackRegion(sharedState->pageTable, r);
+        }
+    }
+}
+
+bool Process::mmapRegionCovers(uint64_t addr) const {
+    if (!sharedState) {
+        return false;
+    }
+    for (VmaRegion* r = sharedState->vmaList; r; r = r->next) {
+        if (addr >= r->start && addr < r->end) {
+            return true;   // covered by a reserved region; will fault in on access
+        }
+    }
+    return false;
+}
+
+bool Process::handleDemandFault(uint64_t faultAddr) {
+    if (!sharedState || !sharedState->pageTable) {
+        return false;
+    }
+
+    const uint64_t va = faultAddr & ~0xFFFULL;
+    if (va >= 0x0000800000000000ULL) {
+        return false;   // not a user address
+    }
+
+    // Find the covering region.
+    VmaRegion* region = nullptr;
+    for (VmaRegion* r = sharedState->vmaList; r; r = r->next) {
+        if (va >= r->start && va < r->end) {
+            region = r;
+            break;
+        }
+    }
+    if (!region) {
+        return false;   // address is in no mmap region -> genuine fault (SIGSEGV)
+    }
+
+    // Already backed (e.g. a duplicate fault) -> nothing to do.
+    if (VMM::VirtualToPhysicalIn(sharedState->pageTable, va)) {
+        return true;
+    }
+
+    uint64_t phys = PMM::AllocFrame();
+    if (!phys) {
+        return false;   // OOM -> fatal fault
+    }
+
+    // File-backed region: page in the file contents at the mapped offset and
+    // zero-fill any bytes past the file window (EOF tail / short read). The read
+    // uses the vnode's positioned read, so the process's fd offset is untouched.
+    if (region->file) {
+        // Reach the fresh frame through the higher-half direct map (see the
+        // anonymous-zero path below for why the identity map is unsafe here).
+        uint8_t* dst = reinterpret_cast<uint8_t*>(VMM::PhysToVirt(phys));
+        const uint64_t filePos = region->fileOffset + (va - region->start);
+        const uint64_t mappedEnd = region->fileOffset + region->fileLength;
+        uint64_t got = 0;
+        if (filePos < mappedEnd) {
+            uint64_t want = mappedEnd - filePos;
+            if (want > PAGE_SIZE) {
+                want = PAGE_SIZE;
+            }
+            VNode* node = region->file->getNode();
+            if (node && node->ops && node->ops->read) {
+                int64_t rd = node->ops->read(node, dst, want, filePos);
+                if (rd > 0) {
+                    got = static_cast<uint64_t>(rd);
+                }
+            }
+        }
+        for (uint64_t i = got; i < PAGE_SIZE; i++) {
+            dst[i] = 0;
+        }
+        VMM::MapPageInto(sharedState->pageTable, va, phys, vmaPageFlags(region->prot));
+        return true;
+    }
+
+    // Anonymous region: zero the fresh frame before it becomes visible. Reach
+    // it through the higher-half direct map, NOT the low identity map: when the
+    // faulting process is a non-PIE (ET_EXEC) image mapped at a low VA, that
+    // image shadows the identity VA of this frame in the active address space,
+    // so an identity zero would clobber the user image (or fault) instead.
+    uint64_t* z = reinterpret_cast<uint64_t*>(VMM::PhysToVirt(phys));
+    for (uint64_t i = 0; i < PAGE_SIZE / sizeof(uint64_t); i++) {
+        z[i] = 0;
+    }
+
+    VMM::MapPageInto(sharedState->pageTable, va, phys, vmaPageFlags(region->prot));
+    return true;
+}
+
+bool Process::mmapCloneRegionsFrom(const Process* parent) {
+    if (!sharedState || !parent || !parent->sharedState) {
+        return false;
+    }
+
+    // Copy the parent's region list verbatim (physical pages are shared
+    // copy-on-write by cloneAddressSpaceFrom; not-yet-faulted pages fault in
+    // independently on each side). File-backed regions carry their backing file
+    // across; the child takes its own reference so both survive independently.
+    VmaRegion** link = &sharedState->vmaList;
+    for (VmaRegion* r = parent->sharedState->vmaList; r; r = r->next) {
+        VmaRegion* copy = new VmaRegion{};
+        if (!copy) {
+            return false;
+        }
+        copy->start = r->start;
+        copy->end = r->end;
+        copy->prot = r->prot;
+        copy->file = r->file;
+        copy->fileOffset = r->fileOffset;
+        copy->fileLength = r->fileLength;
+        copy->shared = r->shared;
+        copy->next = nullptr;
+        if (copy->file) {
+            VFS::get().retain(copy->file);
+        }
+        *link = copy;
+        link = &copy->next;
+    }
+    return true;
+}
+
 bool Process::replaceImageFrom(Process* image) {
     if (!image || !sharedState || !image->sharedState || !image->sharedState->pageTable) {
         return false;
@@ -523,6 +947,7 @@ bool Process::replaceImageFrom(Process* image) {
 
     PageTable* oldPageTable = sharedState->pageTable;
     const uint64_t oldMmapBase = sharedState->mmapBase;
+    VmaRegion* oldVmaList = sharedState->vmaList;
     const uint64_t oldUserStackBase = userStackBase;
     const uint64_t oldUserStackSize = userStackSize;
     const uint64_t oldUserStack = userStack;
@@ -530,13 +955,17 @@ bool Process::replaceImageFrom(Process* image) {
 
     sharedState->pageTable = image->sharedState->pageTable;
     sharedState->mmapBase = image->sharedState->mmapBase;
+    sharedState->vmaList = image->sharedState->vmaList;
     userStackBase = image->userStackBase;
     userStackSize = image->userStackSize;
     userStack = image->userStack;
     userStackHeapBacked = image->userStackHeapBacked;
 
+    // The old address space (and its region list) moves to the throwaway image
+    // process, which is destroyed right after exec -> releaseSharedState frees it.
     image->sharedState->pageTable = oldPageTable;
     image->sharedState->mmapBase = oldMmapBase;
+    image->sharedState->vmaList = oldVmaList;
     image->userStackBase = oldUserStackBase;
     image->userStackSize = oldUserStackSize;
     image->userStack = oldUserStack;
@@ -586,12 +1015,36 @@ void Process::sendSignal(int sig) {
 }
 
 bool Process::hasDeliverableSignal() const {
+    // SIGKILL can never be blocked or ignored and always interrupts a wait.
+    if (signalHandler.pending & (1ULL << SIGKILL)) {
+        return true;
+    }
+
+    // A pending signal only interrupts a blocking syscall (EINTR) if it would
+    // actually be acted upon. Signals whose disposition is "ignore" -- either
+    // SIG_IGN or SIG_DFL with a default-ignore action such as SIGCHLD -- are
+    // discarded by handlePendingSignals() and must NOT wake/EINTR a waiter.
     uint64_t deliverable = signalHandler.pending & ~signalHandler.blocked;
-    deliverable |= signalHandler.pending & (1ULL << SIGKILL);
-    return deliverable != 0;
+    while (deliverable) {
+        const int sig = __builtin_ctzll(deliverable);
+        deliverable &= deliverable - 1;
+
+        const sighandler_t handler = signalHandler.handlers[sig];
+        if (handler == reinterpret_cast<sighandler_t>(1)) {
+            continue; // SIG_IGN: explicitly ignored.
+        }
+        if (!handler && defaultIgnoredSignal(sig)) {
+            continue; // SIG_DFL with a default-ignore disposition (SIGCHLD).
+        }
+        return true; // Custom handler, or a default action that terminates.
+    }
+    return false;
 }
 
 void Process::handlePendingSignals() {
+    // Once terminated the exit code is fixed; do not let a still-pending signal
+    // re-run the termination logic and clobber it (or double-report the death).
+    if (state == ProcessState::Terminated) return;
     if (!signalHandler.pending) return;
 
     for (int sig = 0; sig < NSIG; sig++) {
@@ -601,6 +1054,7 @@ void Process::handlePendingSignals() {
         signalHandler.pending &= ~(1ULL << sig);
 
         if (sig == SIGKILL) {
+            closeFilesOnExit();
             state = ProcessState::Terminated;
             exitCode = 128 + sig;
             return;
@@ -614,6 +1068,7 @@ void Process::handlePendingSignals() {
             if (defaultIgnoredSignal(sig)) {
                 continue;
             }
+            closeFilesOnExit();
             state = ProcessState::Terminated;
             exitCode = 128 + sig;
             return;
@@ -664,6 +1119,24 @@ void Process::handlePendingSignals() {
 
         break;
     }
+}
+
+void Process::closeFilesOnExit() {
+    // POSIX _exit semantics: drop this process's file descriptors at termination
+    // so a lingering zombie no longer pins shared file descriptions (e.g. a pipe
+    // write end). Without this, a peer blocked reading that pipe never sees EOF
+    // until the parent reaps the zombie via wait() -- but the parent may itself
+    // be the blocked reader (command substitution `$(cmd)`), which deadlocks.
+    //
+    // Only act when we exclusively own the descriptor table (refCount == 1).
+    // Threads share the table (refCount > 1); closing it would break siblings,
+    // so their descriptors are released when the last reference drops in
+    // ~Process -> releaseSharedState. closeAllFiles() clears each slot, so the
+    // later closeAll() at reap is a harmless no-op over these slots.
+    if (!sharedState || sharedState->refCount != 1) {
+        return;
+    }
+    sharedState->handleTable.closeAllFiles();
 }
 
 uint64_t Process::allocateFD(FileDescriptor* fd) {

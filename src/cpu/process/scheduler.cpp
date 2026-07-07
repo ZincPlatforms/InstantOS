@@ -190,7 +190,13 @@ void Scheduler::addToReadyQueue(Process* proc) {
     
     int prio = static_cast<int>(proc->getPriority());
     if (prio < 0 || prio > 3) return;
-    
+
+    // Guard against double-insertion: re-adding a process already in the queue
+    // would splice the list onto itself and create a cycle. Queues are short.
+    for (Process* it = readyQueues[prio]; it; it = it->next) {
+        if (it == proc) return;
+    }
+
     proc->next = nullptr;
     
     if (!readyQueues[prio]) {
@@ -209,6 +215,11 @@ void Scheduler::addToReadyQueueFront(Process* proc) {
 
     int prio = static_cast<int>(proc->getPriority());
     if (prio < 0 || prio > 3) return;
+
+    // See addToReadyQueue(): never insert the same node twice.
+    for (Process* it = readyQueues[prio]; it; it = it->next) {
+        if (it == proc) return;
+    }
 
     proc->next = readyQueues[prio];
     readyQueues[prio] = proc;
@@ -282,14 +293,24 @@ void Scheduler::removeProcess(uint32_t pid) {
     }
 }
 
-void Scheduler::reapTerminatedThreads() {
+void Scheduler::reapTerminated() {
     Process* previous = nullptr;
     Process* process = allProcessesHead;
 
     while (process) {
         Process* next = process->allNext;
 
-        if (process != currentProcess && process->isThread() && process->getState() == ProcessState::Terminated) {
+        // Reap terminated threads (their exit status lives in a refcounted
+        // ThreadObject read by join) and terminated orphan processes (no parent
+        // left to call wait()). A terminated process that still has a live
+        // parent stays a zombie until the parent reaps it via sys_wait(). The
+        // currently running process is never freed out from under itself.
+        const bool reapable =
+            process != currentProcess &&
+            process->getState() == ProcessState::Terminated &&
+            (process->isThread() || process->getParentPID() == 0);
+
+        if (reapable) {
             if (previous) {
                 previous->allNext = next;
             } else {
@@ -336,15 +357,23 @@ Process* Scheduler::getNextProcess() {
 void Scheduler::schedule() {
     if (!initialized) return;
 
-    reapTerminatedThreads();
+    reapTerminated();
     
     if (currentProcess) {
         currentProcess->handlePendingSignals();
-        
-        // If the current process is still running, put it back in the ready queue
-        if (currentProcess != idleProcess && currentProcess->getState() == ProcessState::Running) {
-            currentProcess->setState(ProcessState::Ready);
-            addToReadyQueue(currentProcess);
+
+        if (currentProcess != idleProcess) {
+            if (currentProcess->getState() == ProcessState::Terminated) {
+                // The current process just died here (e.g. a fatal signal
+                // delivered by handlePendingSignals, or a sys_exit that landed
+                // us in schedule()). Notify its parent before we switch away;
+                // the actual free happens later via reapTerminated()/sys_wait().
+                onProcessTerminated(currentProcess);
+            } else if (currentProcess->getState() == ProcessState::Running) {
+                // Still runnable: put it back in the ready queue.
+                currentProcess->setState(ProcessState::Ready);
+                addToReadyQueue(currentProcess);
+            }
         }
     }
     
@@ -388,11 +417,12 @@ void Scheduler::schedule() {
         }
         switchContext(nullptr, nextProcess->getContext());
     }
+    // Reached when this frame is resumed via a later switchContext() back into
+    // it. oldProcess is this (now-running) process, so it cannot be Terminated;
+    // notification/freeing of dead tasks is handled by onProcessTerminated() and
+    // reapTerminated(). Kept only as a defensive no-op wake for the parent.
     if (oldProcess && oldProcess->getState() == ProcessState::Terminated) {
-        wakeParentOf(oldProcess);
-        if (oldProcess->isThread() || oldProcess->getParentPID() == 0) {
-            removeProcess(oldProcess->getPID());
-        }
+        onProcessTerminated(oldProcess);
     }
 }
 
@@ -401,7 +431,7 @@ extern "C" void processTrampoline();
 void Scheduler::schedule(InterruptFrame* frame) {
     if (!initialized || !frame) return;
 
-    reapTerminatedThreads();
+    reapTerminated();
     
     Process* oldProcess = currentProcess;
     const bool interruptedUser = frame->cs == kUserCodeSelector;
@@ -411,7 +441,7 @@ void Scheduler::schedule(InterruptFrame* frame) {
     }
 
     if (oldProcess && oldProcess->getState() == ProcessState::Terminated) {
-        wakeParentOf(oldProcess);
+        onProcessTerminated(oldProcess);
     }
     
     // Save current state if it's a user process
@@ -573,6 +603,47 @@ void Scheduler::wakeParentOf(Process* process) {
     Process* parent = getProcessByPID(process->getParentPID());
     if (parent && parent->getState() == ProcessState::Blocked) {
         wakeProcess(parent);
+    }
+}
+
+void Scheduler::onProcessTerminated(Process* process) {
+    if (!process) {
+        return;
+    }
+
+    // Run the death bookkeeping exactly once even if several exit paths observe
+    // the same termination (sys_exit + scheduler sweep, repeated schedule()s,
+    // etc.). Threads are joined/reaped separately and have no children or parent
+    // wait() semantics, so skip the process-level bookkeeping for them.
+    if (process->isThread() || process->wasTerminationHandled()) {
+        return;
+    }
+    process->markTerminationHandled();
+
+    const uint32_t deadPid = process->getPID();
+
+    // Reparent any children (live or already-zombie) to the orphan parent (0).
+    // This stops them from trying to wake a parent that is going away, and lets
+    // reapTerminated() collect orphaned zombies instead of leaking them.
+    for (Process* child = allProcessesHead; child; child = child->allNext) {
+        if (child != process && !child->isThread() && child->getParentPID() == deadPid) {
+            child->setParentPID(0);
+        }
+    }
+
+    // Notify the parent: raise SIGCHLD and wake it if it is blocked (e.g. parked
+    // in sys_wait() or sleeping). SIGCHLD is default-ignored, so it will not
+    // spuriously EINTR a waiter (see Process::hasDeliverableSignal), but the
+    // wake itself is what lets a blocked wait() re-check for the new zombie.
+    const uint32_t parentPid = process->getParentPID();
+    if (parentPid != 0) {
+        Process* parent = getProcessByPID(parentPid);
+        if (parent && parent->getState() != ProcessState::Terminated) {
+            parent->sendSignal(SIGCHLD);
+            if (parent->getState() == ProcessState::Blocked) {
+                wakeProcess(parent);
+            }
+        }
     }
 }
 

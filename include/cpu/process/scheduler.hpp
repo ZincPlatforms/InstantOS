@@ -29,9 +29,14 @@ public:
     void yield();
     void wakeProcess(Process* process);
     void wakeParentOf(Process* process);
+    // Centralized end-of-life bookkeeping for a terminated process: reparents
+    // its children, and notifies/wakes its parent (SIGCHLD + unblock a waiter).
+    // Idempotent and safe to call on any termination path. Does NOT free the
+    // process (that is deferred to reapTerminated()/sys_wait()).
+    void onProcessTerminated(Process* process);
     void wakeExpiredSleepers(uint64_t nowMs);
     void wakeAllBlockedProcesses();
-    
+
     uint32_t allocatePID();
     
 private:
@@ -45,7 +50,10 @@ private:
     void addToReadyQueue(Process* proc);
     void addToReadyQueueFront(Process* proc);
     void removeFromReadyQueue(Process* proc);
-    void reapTerminatedThreads();
+    // Frees terminated threads and terminated orphan processes (parentPID == 0).
+    // Processes with a live parent are left as zombies for the parent's wait().
+    // Never frees the currently running process.
+    void reapTerminated();
 };
 
 extern "C" void switchContext(ProcessContext* oldCtx, ProcessContext* newCtx);

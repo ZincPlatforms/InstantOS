@@ -13,8 +13,10 @@ extern "C" void processTrampoline();
 namespace {
 constexpr uint64_t USER_ELF_BASE = 0x0000400000000000ULL;
 constexpr uint64_t USER_INTERP_BASE = 0x0000500000000000ULL;
-constexpr uint64_t MAX_USER_ELF_SIZE = 32 * 1024 * 1024;
-constexpr int MAX_ARG_ENV = 64;
+constexpr uint64_t MAX_USER_ELF_SIZE = 256 * 1024 * 1024;
+constexpr int MAX_ARG_ENV = 128;
+constexpr int MAX_SHEBANG_DEPTH = 4;   // guard against #! interpreter loops
+constexpr size_t SHEBANG_LINE_MAX = 255;
 
 uint64_t alignDown(uint64_t value, uint64_t alignment) {
     return value & ~(alignment - 1);
@@ -66,24 +68,25 @@ void* allocateBinaryBuffer(size_t size) {
 }
 
 bool copyIntoProcess(PageTable* pageTable, uint64_t dest, const void* source, size_t size) {
-    const uint8_t* src = static_cast<const uint8_t*>(source);
-    while (size > 0) {
-        const uint64_t phys = VMM::VirtualToPhysicalIn(pageTable, dest);
-        if (!phys) {
+    if (size == 0) {
+        return true;
+    }
+    // Every destination page must already be present in the target address space.
+    for (uint64_t va = dest & ~0xFFFULL; va < dest + size; va += PAGE_SIZE) {
+        if (!VMM::VirtualToPhysicalIn(pageTable, va)) {
             return false;
         }
-
-        const size_t pageOffset = static_cast<size_t>(dest & (PAGE_SIZE - 1));
-        size_t chunk = PAGE_SIZE - pageOffset;
-        if (chunk > size) {
-            chunk = size;
-        }
-
-        memcpy(reinterpret_cast<void*>(phys), src, chunk);
-        src += chunk;
-        dest += chunk;
-        size -= chunk;
     }
+    // Write through the destination's own virtual address with the target address
+    // space active, NOT through the low identity map of the backing physical
+    // frame: an unrelated low user mapping (e.g. another non-PIE image loaded at
+    // 0x400000) can shadow that identity VA in whatever page table is currently
+    // active, so an identity write would land on the wrong, read-only page.
+    uint64_t savedCr3;
+    asm volatile("mov %%cr3, %0" : "=r"(savedCr3));
+    VMM::SetAddressSpace(pageTable);
+    memcpy(reinterpret_cast<void*>(dest), source, size);
+    asm volatile("mov %0, %%cr3" : : "r"(savedCr3) : "memory");
     return true;
 }
 
@@ -152,12 +155,24 @@ bool validateElfHeader(const void* image, size_t imageSize, const Elf::Header64*
 
 bool loadElfImage(Process* proc, const void* image, size_t imageSize, uint64_t dynamicBase,
                   bool allowInterpreter, LoadedElfImage* loaded) {
-    const Elf::Header64* header = nullptr;
-    if (!proc || !loaded || !validateElfHeader(image, imageSize, &header)) {
+    if (!proc || !loaded || !image) {
         return false;
     }
 
-    const uint8_t* bytes = static_cast<const uint8_t*>(image);
+    // The image buffer is a physical (identity) allocation from readWholeFile.
+    // Read it through the higher-half direct map: loadElfImage runs in the
+    // calling process's address space, which may itself be a non-PIE (ET_EXEC)
+    // image mapped low (0x400000). Such an image shadows the buffer's identity
+    // VA, so an identity read of the ELF header / program headers here would
+    // parse the user image instead of the buffer (observed as a spurious
+    // "invalid ELF interpreter" when gcc exec'd cc1).
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(
+        VMM::PhysToVirt(reinterpret_cast<uint64_t>(image)));
+    const Elf::Header64* header = nullptr;
+    if (!validateElfHeader(bytes, imageSize, &header)) {
+        return false;
+    }
+
     const auto* phdrs = reinterpret_cast<const Elf::ProgramHeader64*>(bytes + header->programHeaderOffset);
     const uint64_t loadBias = header->type == Elf::TypeDynamic ? dynamicBase : 0;
     PageTable* pageTable = proc->getPageTable();
@@ -217,12 +232,26 @@ bool loadElfImage(Process* proc, const void* image, size_t imageSize, uint64_t d
             return false;
         }
 
-        memset(reinterpret_cast<void*>(phys), 0, mappedSize);
+        // Map the segment into the target address space, then populate the
+        // freshly-allocated destination frames through the higher-half direct
+        // map. Reading the source (`bytes`, also a direct-map alias) and writing
+        // the destination through the direct map makes the copy immune to
+        // identity-map shadowing by a low non-PIE user image in the currently
+        // active address space -- both the source ELF buffer and the destination
+        // frames would otherwise be shadowed. No address-space switch needed.
+        const uint64_t elfFlags = pageFlagsFromElf(ph.flags);
+        VMM::MapRangeInto(pageTable, mappedStart, phys, pages, elfFlags | PageFlags::ReadWrite);
+
+        uint8_t* dstBase = reinterpret_cast<uint8_t*>(VMM::PhysToVirt(phys));
+        memset(dstBase, 0, mappedSize);
         if (ph.fileSize > 0) {
-            memcpy(reinterpret_cast<void*>(phys + pageOffset), bytes + ph.offset, ph.fileSize);
+            memcpy(dstBase + pageOffset, bytes + ph.offset, ph.fileSize);
         }
 
-        VMM::MapRangeInto(pageTable, mappedStart, phys, pages, pageFlagsFromElf(ph.flags));
+        // Re-apply the real protection: drop write for read-only segments.
+        if (!(ph.flags & Elf::FlagWrite)) {
+            VMM::MapRangeInto(pageTable, mappedStart, phys, pages, elfFlags);
+        }
     }
 
     if (phdrAddress == 0) {
@@ -263,7 +292,15 @@ bool readWholeFile(const char* path, void** outBuffer, size_t* outSize) {
         return false;
     }
 
-    const int64_t readBytes = VFS::get().read(fd, buffer, stats.size);
+    // Fill the buffer through the higher-half direct map, not its low identity
+    // address: this runs in the spawning/exec'ing process's address space, which
+    // may itself be a non-PIE (ET_EXEC) image mapped low (0x400000). Such an
+    // image shadows the identity VA of the buffer's frames, so a plain identity
+    // write would scribble on the user image instead of the buffer. The caller
+    // still receives the physical pointer (loadElfImage reads it with the kernel
+    // address space active, freeBinaryBuffer frees it by physical address).
+    void* readDest = reinterpret_cast<void*>(VMM::PhysToVirt(reinterpret_cast<uint64_t>(buffer)));
+    const int64_t readBytes = VFS::get().read(fd, readDest, stats.size);
     VFS::get().close(fd);
 
     if (readBytes != static_cast<int64_t>(stats.size)) {
@@ -273,6 +310,55 @@ bool readWholeFile(const char* path, void** outBuffer, size_t* outSize) {
 
     *outBuffer = buffer;
     *outSize = stats.size;
+    return true;
+}
+
+char* dupString(const char* s) {
+    if (!s) return nullptr;
+    const size_t len = strlen(s);
+    char* copy = new char[len + 1];
+    if (!copy) return nullptr;
+    memcpy(copy, s, len + 1);
+    return copy;
+}
+
+// Parse a "#!interp [arg]" first line. Returns false if `buffer` is not a
+// script. On success copies the interpreter path into interp[] and the single
+// optional argument into arg[] (arg[0]=='\0' when there is none). Matches the
+// common convention: everything after the interpreter (up to end-of-line) is a
+// single argument, with surrounding whitespace trimmed.
+bool parseShebang(const void* buffer, size_t size, char* interp, size_t interpSize,
+                  char* arg, size_t argSize) {
+    const char* p = static_cast<const char*>(buffer);
+    if (size < 2 || p[0] != '#' || p[1] != '!') {
+        return false;
+    }
+
+    const size_t cap = size < SHEBANG_LINE_MAX ? size : SHEBANG_LINE_MAX;
+    size_t lineLen = 0;
+    while (lineLen < cap && p[lineLen] != '\n') {
+        lineLen++;
+    }
+
+    size_t i = 2; // skip "#!"
+    while (i < lineLen && (p[i] == ' ' || p[i] == '\t')) i++;
+
+    size_t j = 0;
+    while (i < lineLen && p[i] != ' ' && p[i] != '\t' && p[i] != '\r') {
+        if (j + 1 >= interpSize) return false; // interpreter path too long
+        interp[j++] = p[i++];
+    }
+    interp[j] = '\0';
+    if (j == 0) return false; // empty interpreter
+
+    while (i < lineLen && (p[i] == ' ' || p[i] == '\t')) i++;
+    size_t a = 0;
+    while (i < lineLen && p[i] != '\r' && p[i] != '\n') {
+        if (a + 1 >= argSize) break; // truncate an over-long argument
+        arg[a++] = p[i++];
+    }
+    while (a > 0 && (arg[a - 1] == ' ' || arg[a - 1] == '\t')) a--;
+    arg[a] = '\0';
     return true;
 }
 
@@ -507,34 +593,110 @@ Process* ProcessExecutor::loadUserBinary(const char* path) {
 
 Process* ProcessExecutor::loadUserBinaryWithArgs(const char* path, int argc, const char** argv,
                                                  int envc, const char** envp) {
-    void* buffer = nullptr;
-    size_t size = 0;
-    if (!readWholeFile(path, &buffer, &size)) {
-        Console::get().drawText("[PROC] failed to read user binary: ");
-        Console::get().drawText(path ? path : "<null>");
-        Console::get().drawText("\n");
+    if (!path) {
         return nullptr;
     }
 
-    const char* defaultArgv[] = { path, nullptr };
-    if (argc == 0) {
-        argc = 1;
-        argv = defaultArgv;
-    }
-
-    Process* proc = createUserProcessWithArgs(buffer, size, argc, argv, envc, envp, path);
-    if (proc) {
-        proc->setName(path);
-        assignUserProcessPriority(proc, path);
+    // Working argv, seeded from the caller. Rewritten in place by each level of
+    // "#!" resolution: argv := [interp, optional-arg, scriptpath, oldargv[1..]].
+    const char* curArgv[MAX_ARG_ENV + 1];
+    int curArgc = 0;
+    if (argc <= 0 || !argv) {
+        curArgv[curArgc++] = path;
     } else {
-        Console::get().drawText("[PROC] create ELF process failed path=");
-        Console::get().drawText(path ? path : "<null>");
-        Console::get().drawText(" size=");
-        Console::get().drawNumber(static_cast<int64_t>(size));
-        Console::get().drawText("\n");
+        for (int i = 0; i < argc && curArgc < MAX_ARG_ENV; ++i) {
+            curArgv[curArgc++] = argv[i];
+        }
+    }
+    curArgv[curArgc] = nullptr;
+
+    // Interpreter/script/arg strings synthesised during shebang resolution.
+    char* owned[MAX_SHEBANG_DEPTH * 3];
+    int ownedCount = 0;
+
+    const char* curPath = path;
+    void* buffer = nullptr;
+    size_t size = 0;
+    Process* proc = nullptr;
+    bool haveElf = false;
+
+    for (int depth = 0; depth <= MAX_SHEBANG_DEPTH; ++depth) {
+        if (!readWholeFile(curPath, &buffer, &size)) {
+            Console::get().drawText("[PROC] failed to read user binary: ");
+            Console::get().drawText(curPath);
+            Console::get().drawText("\n");
+            break;
+        }
+
+        char interp[256];
+        char shArg[256];
+        // Inspect the buffer through the higher-half direct map: this runs in
+        // the calling process's address space, which may be a non-PIE image
+        // mapped low whose mapping shadows the buffer's identity VA (see
+        // loadElfImage / readWholeFile). A raw identity read here would sniff
+        // the user image's bytes instead of the file's first line.
+        const void* shBuf = reinterpret_cast<const void*>(
+            VMM::PhysToVirt(reinterpret_cast<uint64_t>(buffer)));
+        if (!parseShebang(shBuf, size, interp, sizeof(interp), shArg, sizeof(shArg))) {
+            haveElf = true; // `buffer` is a real image to load
+            break;
+        }
+
+        freeBinaryBuffer(buffer, size);
+        buffer = nullptr;
+
+        if (depth == MAX_SHEBANG_DEPTH ||
+            ownedCount + 3 > static_cast<int>(sizeof(owned) / sizeof(owned[0]))) {
+            Console::get().drawText("[PROC] too many nested #! interpreters\n");
+            break;
+        }
+
+        char* interpCopy = dupString(interp);
+        char* scriptCopy = dupString(curPath);
+        char* argCopy = shArg[0] ? dupString(shArg) : nullptr;
+        if (!interpCopy || !scriptCopy || (shArg[0] && !argCopy)) {
+            delete[] interpCopy;
+            delete[] scriptCopy;
+            delete[] argCopy;
+            break;
+        }
+        owned[ownedCount++] = interpCopy;
+        owned[ownedCount++] = scriptCopy;
+        if (argCopy) owned[ownedCount++] = argCopy;
+
+        const char* oldArgv[MAX_ARG_ENV + 1];
+        const int oldArgc = curArgc;
+        for (int i = 0; i < oldArgc; ++i) oldArgv[i] = curArgv[i];
+
+        int n = 0;
+        curArgv[n++] = interpCopy;
+        if (argCopy && n < MAX_ARG_ENV) curArgv[n++] = argCopy;
+        if (n < MAX_ARG_ENV) curArgv[n++] = scriptCopy;
+        for (int i = 1; i < oldArgc && n < MAX_ARG_ENV; ++i) curArgv[n++] = oldArgv[i];
+        curArgv[n] = nullptr;
+        curArgc = n;
+
+        curPath = interpCopy; // loop and load the interpreter
     }
 
-    freeBinaryBuffer(buffer, size);
+    if (haveElf && buffer) {
+        proc = createUserProcessWithArgs(buffer, size, curArgc, curArgv, envc, envp, path);
+        if (proc) {
+            proc->setName(path);
+            assignUserProcessPriority(proc, path);
+        } else {
+            Console::get().drawText("[PROC] create ELF process failed path=");
+            Console::get().drawText(path);
+            Console::get().drawText("\n");
+        }
+    }
+
+    if (buffer) {
+        freeBinaryBuffer(buffer, size);
+    }
+    for (int i = 0; i < ownedCount; ++i) {
+        delete[] owned[i];
+    }
     return proc;
 }
 

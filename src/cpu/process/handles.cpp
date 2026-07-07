@@ -75,6 +75,14 @@ void HandleTable::closeAll() {
     }
 }
 
+void HandleTable::closeAllFiles() {
+    for (int slot = 0; slot < MaxHandles; slot++) {
+        if (entries[slot].type == HandleType::File) {
+            close(encodeHandle(entries[slot].type, slot));
+        }
+    }
+}
+
 HandleEntry* HandleTable::get(uint64_t handle) {
     HandleType type = HandleType::None;
     int slot = -1;

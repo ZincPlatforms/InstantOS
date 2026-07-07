@@ -17,8 +17,13 @@ enum class ProcessPriority {
   Idle = 3 // Special priority for idle process
 };
 
+// Backing store for XSAVE/XSAVEOPT (must be >= the CPU's XSAVE area and 64-byte
+// aligned). 4096 covers x87+SSE+AVX+AVX-512+PKRU (largest standard-layout offset
+// is well under 4K) and matches EXTENDED_STATE_BUFFER_SIZE; keeping it small
+// avoids exhausting the buddy allocator's large-block pool when many
+// processes/threads are created (which previously left fpuState unallocated).
 struct alignas(64) FPUState {
-  uint8_t data[8192];
+  uint8_t data[4096];
 };
 
 struct ProcessContext {
@@ -161,8 +166,36 @@ public:
   void handlePendingSignals();
   bool hasDeliverableSignal() const;
 
+  // One-shot guard so Scheduler::onProcessTerminated() runs its parent
+  // notification / child reparenting exactly once regardless of how many
+  // exit paths (sys_exit, signal kill, scheduler sweep) observe the death.
+  bool wasTerminationHandled() const { return terminationHandled; }
+  void markTerminationHandled() { terminationHandled = true; }
+
   uint64_t getMmapBase() const;
   uint64_t reserveMmapRegion(uint64_t size);
+
+  // Demand-paged anonymous mmap regions. sys_mmap records a region and returns
+  // immediately; physical frames are allocated lazily by handleDemandFault() on
+  // first access. prot uses MemoryProt* bits (0 == PROT_NONE / inaccessible).
+  bool mmapAddRegion(uint64_t start, uint64_t length, uint64_t prot);
+  // File-backed mmap: like mmapAddRegion but the region is demand-paged from
+  // `file` at `fileOffset`. `fileLength` bounds how many bytes come from the
+  // file (beyond it, pages are zero-filled and never written back). `shared`
+  // selects MAP_SHARED writeback vs MAP_PRIVATE copy semantics. Retains `file`
+  // for the region's lifetime (released when the region is dropped).
+  bool mmapAddFileRegion(uint64_t start, uint64_t length, uint64_t prot,
+                         FileDescriptor* file, uint64_t fileOffset,
+                         uint64_t fileLength, bool shared);
+  void mmapRemoveRange(uint64_t start, uint64_t length);
+  bool mmapProtectRange(uint64_t start, uint64_t length, uint64_t prot);
+  // Write back the present pages of any writable MAP_SHARED file region that
+  // overlaps [start, start+length) to its backing file (msync / pre-munmap
+  // flush). No-op for anonymous and read-only/private regions.
+  void mmapSyncRange(uint64_t start, uint64_t length);
+  bool mmapRegionCovers(uint64_t addr) const;   // an accessible region contains addr?
+  bool handleDemandFault(uint64_t faultAddr);   // populate a lazily-reserved page
+  bool mmapCloneRegionsFrom(const Process* parent);
 
   bool isThread() const { return threadObject != nullptr; }
   ThreadObject *getThreadObject() { return threadObject; }
@@ -183,10 +216,25 @@ public:
   bool getHandleCloseOnExec(uint64_t handle, bool *enabled) const;
   bool setHandleCloseOnExec(uint64_t handle, bool enabled);
   void closeOnExecHandles();
+  // Release this process's open file descriptors at termination (POSIX _exit
+  // semantics) so a zombie no longer pins shared file descriptions such as a
+  // pipe write end. Safe/no-op when the fd table is shared with threads.
+  void closeFilesOnExit();
 
   // Copy another process's handle table into ours (fd inheritance for
   // spawn/fork). skipCloseOnExec excludes FD_CLOEXEC handles.
   void cloneHandlesFrom(Process *source, bool skipCloseOnExec);
+
+  // P3.2 exec fd-inheritance: sys_exec keeps the kernel handle table across an
+  // image replacement (dropping CLOEXEC), but the new libc reinitializes its
+  // userspace fd-number -> handle map. libc stashes that map here just before
+  // exec and fetches it at entry; the buffer is a plain Process member so it
+  // survives replaceImageFrom(). fetch validates each entry against the live
+  // handle table so CLOEXEC-closed fds are dropped.
+  static constexpr int kFdStashMax = 256;
+  uint64_t *getFdStash() { return fdStash; }
+  int getFdStashCount() const { return fdStashCount; }
+  void setFdStashCount(int count) { fdStashCount = count; }
 
   // fork() support: deep-copy the parent's user address space into this
   // (freshly created) process, and arrange for this process to resume in
@@ -233,7 +281,7 @@ public:
 
   Debug::SyscallTrace& getSyscallTrace() { return syscallTrace; }
   const Debug::SyscallTrace& getSyscallTrace() const { return syscallTrace; }
-  FPUState *userFpuState;
+  FPUState *userFpuState = nullptr;
 private:
   ProcessSharedState *sharedState;
   char cwd[256];
@@ -246,23 +294,27 @@ private:
   int exitCode;
   ProcessState state;
   ProcessPriority priority;
-  uint64_t kernelStack;
-  uint64_t userStack;
-  uint64_t userStackBase;
-  uint64_t userStackSize;
+  uint64_t kernelStack = 0;
+  uint64_t userStack = 0;
+  uint64_t userStackBase = 0;
+  uint64_t userStackSize = 0;
   // True when userStackBase maps a kmalloc()'d region this Process owns (spawn
   // path). False when the stack is part of a copied address space (fork), in
   // which case FreeAddressSpace() reclaims the frame and the destructor must
   // not kfree() it.
   bool userStackHeapBacked;
   ProcessContext context;
-  FPUState *fpuState;
+  FPUState *fpuState = nullptr;
   bool validUserState;
   uint64_t savedUserRSP;
   uint64_t userFsBase;
   uint64_t sleepDeadlineMs;
   bool sleeping;
+  bool terminationHandled = false;
   SignalHandler signalHandler;
   Debug::SyscallTrace syscallTrace;
   ThreadObject *threadObject;
+  // P3.2: libc fd-table snapshot preserved across exec (see getFdStash()).
+  uint64_t fdStash[kFdStashMax];
+  int fdStashCount = -1;
 };
