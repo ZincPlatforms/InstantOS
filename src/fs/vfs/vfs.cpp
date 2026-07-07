@@ -95,11 +95,21 @@ FileSystem::FileSystem(const char* name) {
 FileSystem::~FileSystem() {
 }
 
-FileDescriptor::FileDescriptor(VNode* node, int flags) 
+FileDescriptor::FileDescriptor(VNode* node, int flags, const char* fdPath) 
     : node(node), flags(flags), offset(0), refCount(1) {
     if (node) {
         node->refCount++;
     }
+    // Record the (absolute, canonical) open path so the fd->path syscall can
+    // support the *at family and fchdir. Callers with no path (pipes/sockets)
+    // leave it empty.
+    size_t i = 0;
+    if (fdPath) {
+        for (; fdPath[i] != '\0' && i + 1 < sizeof(path); ++i) {
+            path[i] = fdPath[i];
+        }
+    }
+    path[i] = '\0';
 }
 
 FileDescriptor::~FileDescriptor() {
@@ -408,7 +418,7 @@ int VFS::open(const char* path, int flags, FileDescriptor** fd, uint32_t mode) {
         }
     }
     
-    *fd = new FileDescriptor(node, flags);
+    *fd = new FileDescriptor(node, flags, path);
     return 0;
 }
 

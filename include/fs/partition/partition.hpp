@@ -26,6 +26,7 @@ public:
     bool read(uint64_t offset, void* buffer, uint64_t size) override;
     bool write(uint64_t offset, const void* buffer, uint64_t size) override;
     uint64_t getSize() override;
+    bool flush() override;
 
 private:
     BlockDevice* base;
@@ -41,3 +42,30 @@ bool mbrFindFatPartition(BlockDevice* device, uint64_t* startByte, uint64_t* len
 
 // Returns true if a partition type byte denotes a FAT filesystem we support.
 bool mbrIsFatType(uint8_t type);
+
+// Returns true if a partition type byte denotes a Linux filesystem (ext2/3/4).
+bool mbrIsLinuxType(uint8_t type);
+
+// Parse the MBR and locate the first usable partition holding a filesystem we
+// support (FAT or Linux/ext*). On success fills *startByte / *lengthByte /
+// *typeOut and returns true; returns false if there is no valid MBR signature
+// or no supported partition is present. The caller probes the partition to
+// decide which filesystem driver to mount.
+bool mbrFindPartition(BlockDevice* device, uint64_t* startByte, uint64_t* lengthByte, uint8_t* typeOut);
+
+// --- GPT (GUID Partition Table): the partitioning scheme used by UEFI disks ---
+
+#define GPT_HEADER_LBA 1
+#define GPT_ENTRY_NAME_LEN 36   // UTF-16 code units
+
+// Returns true if `device` has a primary GPT header ("EFI PART" at LBA 1).
+bool gptIsPresent(BlockDevice* device);
+
+// Locate the root filesystem partition on a GPT disk. Scans the partition entry
+// array and prefers the first "Linux filesystem data" partition (the usual ext4
+// root); if none is present, returns the first used partition. Fills *startByte
+// / *lengthByte (in bytes) and *isLinux (whether the chosen partition carries
+// the Linux filesystem type GUID). Returns false if there is no valid GPT or no
+// used partition. Assumes 512-byte logical sectors. The caller probes the
+// partition to decide which filesystem driver to mount.
+bool gptFindPartition(BlockDevice* device, uint64_t* startByte, uint64_t* lengthByte, bool* isLinux);

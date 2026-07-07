@@ -439,6 +439,52 @@ bool AHCIPort::identify(uint16_t* buffer) {
     return executeCommand(ATA_CMD_IDENTIFY, 0, 1, buffer, false);
 }
 
+// FLUSH CACHE EXT: a non-data command (no PRDT), so it needs its own issue path
+// rather than executeCommand() which always programs a data buffer.
+bool AHCIPort::flush() {
+    if (!commandList) return false;
+
+    port->is = (uint32_t)-1;
+    int slot = findCmdSlot();
+    if (slot == -1) return false;
+
+    HBACmdHeader* cmdheader = commandList + slot;
+    cmdheader->cfl = sizeof(FISRegH2D) / sizeof(uint32_t);
+    cmdheader->w = 0;
+    cmdheader->prdtl = 0;   // no data transfer
+
+    HBACmdTbl* cmdtbl = commandTables[slot];
+    if (!cmdtbl) return false;
+    zeroMemory(cmdtbl, 256);
+
+    FISRegH2D* cmdfis = (FISRegH2D*)(&cmdtbl->cfis);
+    cmdfis->fis_type = 0x27;
+    cmdfis->c = 1;
+    cmdfis->command = ATA_CMD_FLUSH_EX;
+    cmdfis->device = 1 << 6;
+
+    int spin = 0;
+    while ((port->tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) && spin < 1000000) {
+        spin++;
+    }
+    if (spin == 1000000) return false;
+
+    port->ci = 1 << slot;
+
+    while (true) {
+        if ((port->ci & (1 << slot)) == 0) break;
+        if (port->is & HBA_PxIS_TFES) {
+            recoverFromError();
+            return false;
+        }
+    }
+    if (port->is & HBA_PxIS_TFES) {
+        recoverFromError();
+        return false;
+    }
+    return true;
+}
+
 
 AHCIController::AHCIController(uint64_t abar) : hba(nullptr), portCount(0), abar(abar) {
     for (int i = 0; i < 32; i++) {
@@ -593,7 +639,13 @@ bool SATABlockDevice::read(uint64_t offset, void* buffer, uint64_t size) {
             return false;
         }
 
-        const uint8_t* src = reinterpret_cast<const uint8_t*>(dmaBuffer) + sectorOffset;
+        // CPU-read the bounce buffer through the higher-half direct map. The DMA
+        // engine was handed dmaBuffer's physical address (identity) above, but a
+        // plain identity CPU read here would be shadowed by a non-PIE user image
+        // mapped low (0x400000) in the active address space, returning the user
+        // image's bytes instead of the freshly DMA'd sector data.
+        const uint8_t* src =
+            reinterpret_cast<const uint8_t*>(VMM::PhysToVirt(reinterpret_cast<uint64_t>(dmaBuffer))) + sectorOffset;
         for (uint64_t i = 0; i < chunk; i++) {
             dst[i] = src[i];
         }
@@ -634,7 +686,11 @@ bool SATABlockDevice::write(uint64_t offset, const void* buffer, uint64_t size) 
             }
         }
 
-        uint8_t* dmaDst = reinterpret_cast<uint8_t*>(dmaBuffer) + sectorOffset;
+        // CPU-write the bounce buffer through the higher-half direct map (see
+        // read() for the shadowing rationale); the DMA engine still uses the
+        // physical dmaBuffer address below.
+        uint8_t* dmaDst =
+            reinterpret_cast<uint8_t*>(VMM::PhysToVirt(reinterpret_cast<uint64_t>(dmaBuffer))) + sectorOffset;
         for (uint64_t i = 0; i < chunk; i++) {
             dmaDst[i] = src[i];
         }
@@ -653,4 +709,8 @@ bool SATABlockDevice::write(uint64_t offset, const void* buffer, uint64_t size) 
 
 uint64_t SATABlockDevice::getSize() {
     return totalSize;
+}
+
+bool SATABlockDevice::flush() {
+    return port && port->flush();
 }

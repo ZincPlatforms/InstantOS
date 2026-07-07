@@ -77,6 +77,7 @@ struct VNodeOps {
     int (*statfs)(VNode* node, FsStats* stats);
     int (*chown)(VNode* node, uint32_t uid, uint32_t gid);
     int (*mknod)(VNode* parent, const char* name, uint32_t mode, uint64_t dev, VNode** result);
+    int (*fsync)(VNode* node);   // flush this node's data+metadata to stable storage
 };
 
 class VNode {
@@ -117,7 +118,7 @@ protected:
 
 class FileDescriptor {
 public:
-    FileDescriptor(VNode* node, int flags);
+    FileDescriptor(VNode* node, int flags, const char* path = nullptr);
     ~FileDescriptor();
     
     VNode* getNode() { return node; }
@@ -126,12 +127,17 @@ public:
     void setOffset(uint64_t off) { offset = off; }
     void retain() { refCount++; }
     bool release() { return --refCount == 0; }
+    // Absolute canonical path this fd was opened with (empty for pathless fds
+    // such as pipes/sockets). Used by the fd->path syscall so libc can resolve
+    // the *at family (openat/unlinkat/...) and fchdir against a real dirfd.
+    const char* getPath() const { return path; }
     
 private:
     VNode* node;
     int flags;
     uint64_t offset;
     uint32_t refCount;
+    char path[256];
 };
 
 struct MountPoint {

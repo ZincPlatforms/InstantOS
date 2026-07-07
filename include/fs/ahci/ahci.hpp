@@ -15,6 +15,7 @@
 #define ATA_CMD_READ_DMA_EX 0x25
 #define ATA_CMD_WRITE_DMA_EX 0x35
 #define ATA_CMD_IDENTIFY 0xEC
+#define ATA_CMD_FLUSH_EX 0xEA
 
 #define ATA_DEV_BUSY 0x80
 #define ATA_DEV_DRQ 0x08
@@ -157,6 +158,7 @@ public:
     bool read(uint64_t sector, uint32_t count, void* buffer);
     bool write(uint64_t sector, uint32_t count, const void* buffer);
     bool identify(uint16_t* buffer);
+    bool flush();   // ATA FLUSH CACHE EXT (non-data durability barrier)
 
     int getType();
     bool isActive() { return active; }
@@ -202,6 +204,7 @@ public:
     bool read(uint64_t offset, void* buffer, uint64_t size) override;
     bool write(uint64_t offset, const void* buffer, uint64_t size) override;
     uint64_t getSize() override;
+    bool flush() override;
 
 private:
     AHCIPort* port;

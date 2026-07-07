@@ -1,6 +1,7 @@
 #pragma once
 
 #include <fs/vfs/vfs.hpp>
+#include <fs/block/blockdevice.hpp>
 #include <stdint.h>
 
 #define FAT32_ATTR_READ_ONLY 0x01
@@ -80,13 +81,8 @@ struct FAT32Node {
     uint32_t parentCluster;
 };
 
-class BlockDevice {
-public:
-    virtual ~BlockDevice() {}
-    virtual bool read(uint64_t offset, void* buffer, uint64_t size) = 0;
-    virtual bool write(uint64_t offset, const void* buffer, uint64_t size) = 0;
-    virtual uint64_t getSize() = 0;
-};
+// BlockDevice now lives in <fs/block/blockdevice.hpp> (included above) so it can
+// be shared by every filesystem (FAT32, ext4, ...) and the partition layer.
 
 
 

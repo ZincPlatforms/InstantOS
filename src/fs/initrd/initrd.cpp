@@ -1,12 +1,24 @@
 #include <fs/initrd/initrd.hpp>
 #include <common/string.hpp>
 #include <graphics/console.hpp>
+#include <memory/vmm.hpp>
 
 constexpr uint32_t INITRD_MAGIC = 0x44524E49;
 static constexpr uint64_t INITRD_DIRECTORY_INODE_BASE = 0x8000000000000000ULL;
 
 InitrdFS::InitrdFS(void* data, size_t size, const char* prefix)
-    : FileSystem("initrd"), data(data), dataSize(size), header(nullptr), rootNode(nullptr) {
+    : FileSystem("initrd"), data(nullptr), dataSize(size), header(nullptr), rootNode(nullptr) {
+    // The initrd is a physical (identity) reservation from the bootloader.
+    // Access it through the higher-half direct map so every read (header, dir
+    // table, and file contents) is immune to identity-map shadowing by a low
+    // non-PIE (ET_EXEC) user image in the active address space. The exec path
+    // reads the ELF interpreter (e.g. ld-instantos.so) from the initrd while
+    // such an image is active; a raw identity read there returned the user
+    // image's bytes -> "invalid ELF interpreter". All node ops derive their
+    // pointers from this->data, so remapping here covers them all. (Every
+    // InitrdFS is constructed after VMM::InitDirectMap(), so the map is ready.)
+    this->data = data ? reinterpret_cast<void*>(VMM::PhysToVirt(reinterpret_cast<uint64_t>(data))) : nullptr;
+
     rootPrefix[0] = '\0';
     if (prefix) {
         size_t i = 0;
@@ -17,8 +29,8 @@ InitrdFS::InitrdFS(void* data, size_t size, const char* prefix)
         rootPrefix[i] = '\0';
     }
 
-    if (data && size >= sizeof(InitrdHeader)) {
-        header = static_cast<InitrdHeader*>(data);
+    if (this->data && size >= sizeof(InitrdHeader)) {
+        header = static_cast<InitrdHeader*>(this->data);
         if (header->magic != INITRD_MAGIC) {
             header = nullptr;
         }
@@ -153,7 +165,11 @@ int InitrdFS::nodeStat(VNode* node, FileStats* stats) {
         
         InitrdFile* file = &fs->header->files[inode - 1];
         stats->size = file->size;
-        stats->mode = 0644;
+        // The initrd holds system binaries (/bin) and libraries (/lib); mark them
+        // executable so POSIX tools that gate exec on access(path, X_OK) (e.g.
+        // GNU make's PATH search) will run them. SYS_EXEC/SYS_SPAWN don't consult
+        // the mode, but make does.
+        stats->mode = 0755;
     }
     
     return 0;
