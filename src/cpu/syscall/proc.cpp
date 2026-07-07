@@ -16,7 +16,13 @@ namespace {
 constexpr uint64_t kDefaultThreadStackSize = 16 * PAGE_SIZE;
 constexpr uint64_t kMinThreadStackSize = 4 * PAGE_SIZE;
 constexpr uint64_t kMaxThreadStackSize = 256 * PAGE_SIZE;
-constexpr uint64_t kWaitNoHang = 1;
+constexpr uint64_t kWaitNoHang = 1;    // WNOHANG
+constexpr uint64_t kWaitUntraced = 2;  // WUNTRACED  (no-op: no job-control stop state)
+constexpr uint64_t kWaitContinued = 8; // WCONTINUED (no-op: no job-control continue state)
+// Options we accept from userspace. WUNTRACED/WCONTINUED are tolerated so that
+// libc wrappers passing them don't fail; we simply never report stopped or
+// continued children because the kernel has no such states yet.
+constexpr uint64_t kWaitOptionMask = kWaitNoHang | kWaitUntraced | kWaitContinued;
 constexpr uint32_t kMsrFsBase = 0xC0000100;
 
 uint64_t alignUp(uint64_t value, uint64_t alignment) {
@@ -48,7 +54,7 @@ bool copyStringVectorFromUser(uint64_t vectorPtr, int* outCount, const char*** o
     }
 
     int count = 0;
-    while (count < 64) {
+    while (count < 128) { // must stay <= exec.cpp MAX_ARG_ENV
         uint64_t itemPtr = 0;
         if (!Syscall::copyFromUser(&itemPtr, vectorPtr + count * sizeof(uint64_t), sizeof(itemPtr))) {
             return false;
@@ -72,8 +78,14 @@ bool copyStringVectorFromUser(uint64_t vectorPtr, int* outCount, const char*** o
             return false;
         }
 
-        char* item = new char[256];
-        if (!Syscall::copyStringFromUser(itemPtr, item, 256)) {
+        // Argument/environment strings can be long: e.g. gcc sets
+        // COLLECT_GCC_OPTIONS to the full concatenated driver command line when
+        // it exec()s cc1/as/collect2. A 256-byte cap made copyStringFromUser()
+        // fail (no NUL within the buffer) -> the whole exec returned EINVAL,
+        // breaking real toolchain command lines (observed building tcc via gcc).
+        constexpr int kMaxArgStringLen = 4096;
+        char* item = new char[kMaxArgStringLen];
+        if (!Syscall::copyStringFromUser(itemPtr, item, kMaxArgStringLen)) {
             delete[] item;
             for (int j = 0; j < i; j++) delete[] values[j];
             delete[] values;
@@ -141,8 +153,9 @@ uint64_t Syscall::sys_exit(uint64_t code) {
     }
 
     current->setExitCode((int)code);
+    current->closeFilesOnExit();
     current->setState(ProcessState::Terminated);
-    Scheduler::get().wakeParentOf(current);
+    Scheduler::get().onProcessTerminated(current);
 
     Scheduler::get().scheduleFromSyscall();
     return (uint64_t)-1;
@@ -221,6 +234,14 @@ uint64_t Syscall::sys_fork() {
     }
 
     if (!child->cloneAddressSpaceFrom(parent)) {
+        delete child;
+        asm volatile("mov %0, %%cr3" :: "r"(userCR3) : "memory");
+        return syscall_error(SysErrNoMemory);
+    }
+
+    // Inherit the parent's demand-paged mmap region list (lazy pages fault in
+    // per-child; already-faulted pages are shared copy-on-write above).
+    if (!child->mmapCloneRegionsFrom(parent)) {
         delete child;
         asm volatile("mov %0, %%cr3" :: "r"(userCR3) : "memory");
         return syscall_error(SysErrNoMemory);
@@ -342,7 +363,7 @@ uint64_t Syscall::sys_exec(uint64_t path, uint64_t argv, uint64_t envp) {
 }
 
 uint64_t Syscall::sys_wait(uint64_t pid, uint64_t statusPtr, uint64_t options) {
-    if ((options & ~kWaitNoHang) != 0) {
+    if ((options & ~kWaitOptionMask) != 0) {
         return syscall_error(SysErrInvalid);
     }
     if (statusPtr && !isValidUserPointer(statusPtr, sizeof(int))) {
@@ -360,9 +381,20 @@ uint64_t Syscall::sys_wait(uint64_t pid, uint64_t statusPtr, uint64_t options) {
     }
 
     for (;;) {
+        // Declare intent to block BEFORE scanning for a reapable child. Kernel
+        // syscalls run non-preemptibly here (the timer only reschedules when it
+        // interrupts user mode / the idle task), so nothing can run between the
+        // scan and the block. Marking Blocked first is what makes the wake-up
+        // level-triggered: a child that terminates after this point takes the
+        // "parent is Blocked -> wake it" path in onProcessTerminated(), while a
+        // child that already terminated is found by the scan below. Either way
+        // the wake-up cannot be lost.
+        current->setState(ProcessState::Blocked);
+
         bool hasMatchingChild = false;
         Process* child = Scheduler::get().findChild(current->getPID(), requestedPid, true, &hasMatchingChild);
         if (child) {
+            current->setState(ProcessState::Running);
             const uint32_t childPid = child->getPID();
             const int status = waitStatusFor(child);
             if (statusPtr && !copyToUser(statusPtr, &status, sizeof(status))) {
@@ -374,14 +406,15 @@ uint64_t Syscall::sys_wait(uint64_t pid, uint64_t statusPtr, uint64_t options) {
         }
 
         if (!hasMatchingChild) {
+            current->setState(ProcessState::Running);
             return syscall_error(SysErrNoChild);
         }
 
         if ((options & kWaitNoHang) != 0) {
+            current->setState(ProcessState::Running);
             return 0;
         }
 
-        current->setState(ProcessState::Blocked);
         Scheduler::get().scheduleFromSyscall();
         current = Scheduler::get().getCurrentProcess();
         if (!current) {
@@ -455,35 +488,42 @@ uint64_t Syscall::sys_getppid() {
 uint64_t Syscall::sys_spawn(uint64_t path, uint64_t argv, uint64_t envp) {
     char pathname[256];
     if (!copyUserString(path, pathname, sizeof(pathname))) {
-        Console::get().drawText("[spawn] invalid path pointer\n");
         return syscall_error(SysErrInvalid);
     }
-    Console::get().drawText("[spawn] path: ");
-    Console::get().drawText(pathname);
-    Console::get().drawText("\n");
 
     int argc = 0;
     const char** kernelArgv = nullptr;
     if (!copyStringVectorFromUser(argv, &argc, &kernelArgv)) {
-        Console::get().drawText("[spawn] invalid argv pointer\n");
         return syscall_error(SysErrInvalid);
     }
 
     int envc = 0;
     const char** kernelEnvp = nullptr;
     if (!copyStringVectorFromUser(envp, &envc, &kernelEnvp)) {
-        Console::get().drawText("[spawn] invalid envp pointer\n");
         freeStringVector(kernelArgv, argc);
         return syscall_error(SysErrInvalid);
     }
 
+    // Load the ELF with the kernel page table active. The loader writes freshly
+    // allocated segment frames through the identity map (memset/memcpy on the
+    // physical address); with a user page table active, a non-PIE image's low
+    // segment mappings (0x400000+) shadow the identity map, so an identity write
+    // to a colliding physical frame lands on a read-only user page and faults.
+    // sys_exec already switches address spaces before loading; sys_spawn must do
+    // the same and then restore the caller's address space (it returns to the
+    // caller rather than replacing the image).
+    uint64_t callerCR3;
+    asm volatile("mov %%cr3, %0" : "=r"(callerCR3));
+    VMM::SetAddressSpace(VMM::GetKernelAddressSpace());
+
     Process* newProc = ProcessExecutor::loadUserBinaryWithArgs(pathname, argc, kernelArgv, envc, kernelEnvp);
+
+    asm volatile("mov %0, %%cr3" : : "r"(callerCR3) : "memory");
 
     freeStringVector(kernelArgv, argc);
     freeStringVector(kernelEnvp, envc);
 
     if (!newProc) {
-        Console::get().drawText("[spawn] loadUserBinaryWithArgs failed\n");
         return syscall_error(SysErrNoEntry);
     }
 
@@ -503,6 +543,55 @@ uint64_t Syscall::sys_spawn(uint64_t path, uint64_t argv, uint64_t envp) {
 
     uint64_t pid = newProc->getPID();
     return pid;
+}
+
+uint64_t Syscall::sys_fdtable_stash(uint64_t ptr, uint64_t count) {
+    // Snapshot libc's fd-number -> handle table into the Process so it survives
+    // the image replacement in the following exec. See Process::getFdStash().
+    Process* current = Scheduler::get().getCurrentProcess();
+    if (!current) return syscall_error(SysErrInvalid);
+    if (count > static_cast<uint64_t>(Process::kFdStashMax)) {
+        count = static_cast<uint64_t>(Process::kFdStashMax);
+    }
+    if (count == 0) { current->setFdStashCount(0); return 0; }
+    if (!isValidUserPointer(ptr, count * sizeof(uint64_t))) {
+        return syscall_error(SysErrInvalid);
+    }
+    if (!copyFromUser(current->getFdStash(), ptr, count * sizeof(uint64_t))) {
+        return syscall_error(SysErrInvalid);
+    }
+    current->setFdStashCount(static_cast<int>(count));
+    return 0;
+}
+
+uint64_t Syscall::sys_fdtable_fetch(uint64_t ptr, uint64_t count) {
+    // Restore the fd-table snapshot at process entry, validating each entry
+    // against the live handle table so CLOEXEC handles closed during exec are
+    // dropped. Returns 0 (no-op) for a process that never stashed (e.g. the
+    // initial process, or a fork child that did not exec).
+    Process* current = Scheduler::get().getCurrentProcess();
+    if (!current) return syscall_error(SysErrInvalid);
+    int stashed = current->getFdStashCount();
+    if (stashed <= 0) return 0;
+    if (count > static_cast<uint64_t>(stashed)) {
+        count = static_cast<uint64_t>(stashed);
+    }
+    if (!isValidUserPointer(ptr, count * sizeof(uint64_t))) {
+        return syscall_error(SysErrInvalid);
+    }
+    uint64_t* stash = current->getFdStash();
+    // fd 0/1/2 use the stdio handle convention (values 0/1/2, not real handles);
+    // always keep them. For fd>=3, drop handles that no longer exist.
+    for (uint64_t i = 3; i < count; i++) {
+        if (stash[i] != 0 && current->getHandle(stash[i]) == nullptr) {
+            stash[i] = 0;
+        }
+    }
+    if (!copyToUser(ptr, stash, count * sizeof(uint64_t))) {
+        return syscall_error(SysErrInvalid);
+    }
+    current->setFdStashCount(-1);   // one-shot per exec
+    return count;
 }
 
 uint64_t Syscall::sys_thread_create(uint64_t entry, uint64_t arg, uint64_t stackSize) {
@@ -575,6 +664,80 @@ uint64_t Syscall::sys_thread_create(uint64_t entry, uint64_t arg, uint64_t stack
 
     Scheduler::get().addProcess(thread);
     return handle;
+}
+
+// POSIX/mlibc-style thread spawn: the caller (mlibc's Clone sysdep) supplies an
+// already-prepared user stack (from PrepareStack) whose top holds the mlibc
+// thread-entry arguments, and the new thread begins at `entry`
+// (mlibc's __mlibc_thread_entry). Unlike sys_thread_create this does NOT hand
+// back a kernel join handle: mlibc joins in userspace via a futex on the TCB's
+// didExit flag, so we return the new thread's TID directly. The thread sets its
+// own TLS (fs base) via SET_THREAD_POINTER from its trampoline.
+uint64_t Syscall::sys_thread_clone(uint64_t entry, uint64_t userStack) {
+    Process* current = Scheduler::get().getCurrentProcess();
+    if (!current || entry == 0 || !isValidUserPointer(entry, 1)) {
+        return syscall_error(SysErrInvalid);
+    }
+    // The prepared stack must be a valid, writable user pointer; the trampoline
+    // immediately pops four words (entry/tcb/arg/nul) from it.
+    if (userStack == 0 || !isValidUserPointer(userStack, 4 * sizeof(uint64_t))) {
+        return syscall_error(SysErrInvalid);
+    }
+
+    // Reuse the shared-address-space thread constructor. It also allocates a
+    // small kernel-managed user stack we never use (mlibc runs on `userStack`);
+    // that stack is reclaimed by ~Process() when the thread is reaped. Sharing
+    // the parent's page table is what makes this a thread rather than a process.
+    Process* thread = new Process(Scheduler::get().allocatePID(), current, kMinThreadStackSize);
+    if (!thread || !thread->getPageTable() || !thread->getKernelStack()) {
+        delete thread;
+        return syscall_error(SysErrNoMemory);
+    }
+
+    auto* object = new ThreadObject();
+    if (!object) {
+        delete thread;
+        return syscall_error(SysErrNoMemory);
+    }
+
+    // refCount=1: only the thread's own Process references it (no join handle).
+    // ~Process() releases it (1->0) when the thread is reaped, and the exit
+    // status is observed by mlibc through the TCB, not this object.
+    object->tid = thread->getPID();
+    object->refCount = 1;
+    object->completed = false;
+    object->exitCode = 0;
+    object->process = thread;
+
+    thread->setThreadObject(object);
+    thread->setParentPID(current->getPID());
+    thread->setUID(current->getUID());
+    thread->setGID(current->getGID());
+    thread->setSessionID(current->getSessionID());
+    thread->setPriority(current->getPriority());
+    thread->setCwd(current->getCwd());
+    thread->setName(current->getName());
+
+    thread->setUserStack(userStack);
+
+    // threadTrampoline pops entry/userStack/arg from the kernel stack, then
+    // iretq's to `entry` with rsp=userStack. arg is unused by the mlibc entry
+    // stub (which reads everything off userStack), so pass 0.
+    uint64_t kernelStack = thread->getKernelStack() & ~0xFULL;
+    kernelStack -= 8;
+    *reinterpret_cast<uint64_t*>(kernelStack) = 0;          // arg (unused)
+    kernelStack -= 8;
+    *reinterpret_cast<uint64_t*>(kernelStack) = userStack;  // initial user rsp
+    kernelStack -= 8;
+    *reinterpret_cast<uint64_t*>(kernelStack) = entry;      // __mlibc_thread_entry
+
+    thread->getContext()->rip = reinterpret_cast<uint64_t>(&threadTrampoline);
+    thread->getContext()->rsp = kernelStack;
+    thread->getContext()->rbp = 0;
+    thread->getContext()->rflags = 0x202;
+
+    Scheduler::get().addProcess(thread);
+    return static_cast<uint64_t>(thread->getPID());
 }
 
 uint64_t Syscall::sys_thread_exit(uint64_t code) {
@@ -710,6 +873,12 @@ extern "C" void restoreSyscallState(uint64_t* stack, uint64_t result) {
         context->rsp = getPerCPU()->userRSP;
         current->setValidUserState(true);
         current->handlePendingSignals();
+        if (current->getState() == ProcessState::Terminated) {
+            // Same hazard as syscallHandler(): a fatal signal terminated us on
+            // the way back to user mode. Do not restore/return; reschedule so
+            // the parent is notified and we never run again. (Never returns.)
+            Scheduler::get().scheduleFromSyscall();
+        }
     }
 
     stack[0] = context->r15;

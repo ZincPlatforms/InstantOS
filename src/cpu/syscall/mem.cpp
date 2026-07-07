@@ -3,6 +3,7 @@
 #include <memory/pmm.hpp>
 #include <memory/vmm.hpp>
 #include <common/string.hpp>
+#include <fs/vfs/vfs.hpp>
 
 namespace {
 uint64_t pageFlagsForProtection(uint64_t prot, bool defaultReadWrite) {
@@ -39,7 +40,10 @@ uint64_t Syscall::sys_mmap(uint64_t addr, uint64_t length, uint64_t prot) {
     if (length == 0) return syscall_error(SysErrInvalid);
     if (addr != 0 && (addr & (PAGE_SIZE - 1)) != 0) return syscall_error(SysErrInvalid);
 
+    // Overflow guard on the requested length.
+    if (length > 0x0000800000000000ULL) return syscall_error(SysErrInvalid);
     size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+    if (pages == 0) return syscall_error(SysErrInvalid);
     size_t aligned_length = pages * PAGE_SIZE;
 
     Process* current = Scheduler::get().getCurrentProcess();
@@ -47,45 +51,122 @@ uint64_t Syscall::sys_mmap(uint64_t addr, uint64_t length, uint64_t prot) {
 
     PageTable* pageTable = current->getPageTable();
     uint64_t virt = (addr != 0) ? addr : current->reserveMmapRegion(aligned_length);
+    if (virt == 0) return syscall_error(SysErrNoMemory);
 
-    uint64_t phys = PMM::AllocFrames(pages);
-    if (!phys) {
+    // The whole range must stay in the user (lower) half and not wrap.
+    if (virt >= 0x0000800000000000ULL ||
+        virt + aligned_length < virt ||
+        virt + aligned_length > 0x0000800000000000ULL) {
         return syscall_error(SysErrNoMemory);
     }
 
+    // Demand-paged: record the region and return. Physical frames are allocated
+    // lazily (and zero-filled) by Process::handleDemandFault() on first access,
+    // so a large mmap never needs a contiguous physical block up front.
+    // For an explicit fixed address, drop any prior mapping/reservation there.
     if (addr != 0) {
         unmapUserPages(pageTable, virt, pages);
-    }
-
-    const uint64_t finalFlags = pageFlagsForProtection(prot, true);
-    const uint64_t zeroFlags = finalFlags | ReadWrite;
-    VMM::MapRangeInto(pageTable, virt, phys, pages, zeroFlags);
-    for (size_t i = 0; i < pages; i++) {
-        if (VMM::VirtualToPhysicalIn(pageTable, virt + i * PAGE_SIZE) == 0) {
-            VMM::UnmapRangeFrom(pageTable, virt, i);
-            PMM::FreeFrames(phys, pages);
-            return syscall_error(SysErrNoMemory);
-        }
-    }
-
-    // Flush any stale TLB entries for this range *before* touching the new
-    // mapping. MapRangeInto / UnmapRangeFrom do not invalidate, so a prior
-    // munmap (or a stale large-page translation) can otherwise leave a bogus
-    // entry cached, causing a reserved-bit / protection fault on the kernel
-    // memset below.
-    for (size_t i = 0; i < pages; i++) {
-        asm volatile("invlpg (%0)" : : "r"(virt + i * PAGE_SIZE) : "memory");
-    }
-
-    memset(reinterpret_cast<void*>(virt), 0, aligned_length);
-    if (finalFlags != zeroFlags) {
-        VMM::ProtectRangeIn(pageTable, virt, pages, finalFlags);
+        current->mmapRemoveRange(virt, aligned_length);
         for (size_t i = 0; i < pages; i++) {
             asm volatile("invlpg (%0)" : : "r"(virt + i * PAGE_SIZE) : "memory");
         }
     }
 
+    if (!current->mmapAddRegion(virt, aligned_length, prot)) {
+        return syscall_error(SysErrNoMemory);
+    }
+
     return virt;
+}
+
+uint64_t Syscall::sys_mmap_file(uint64_t argsPtr) {
+    MmapFileArgs args{};
+    if (!copyFromUser(&args, argsPtr, sizeof(args))) {
+        return syscall_error(SysErrInvalid);
+    }
+
+    // MAP_* bit values (Linux ABI, matching mlibc abis/linux/vm-flags.h).
+    constexpr uint64_t kMapShared = 0x01;
+    constexpr uint64_t kMapAnonymous = 0x20;
+
+    const uint64_t addr = args.addr;
+    const uint64_t length = args.length;
+    const uint64_t prot = args.prot;
+    const uint64_t flags = args.flags;
+    const uint64_t offset = args.offset;
+
+    // An anonymous request carries no backing file: fall back to the plain
+    // demand-paged path (keeps a single code path for AnonAllocate/MAP_ANON).
+    if (flags & kMapAnonymous) {
+        return sys_mmap(addr, length, prot);
+    }
+
+    if (length == 0) return syscall_error(SysErrInvalid);
+    if (addr != 0 && (addr & (PAGE_SIZE - 1)) != 0) return syscall_error(SysErrInvalid);
+    if (offset & (PAGE_SIZE - 1)) return syscall_error(SysErrInvalid);
+    if (length > 0x0000800000000000ULL) return syscall_error(SysErrInvalid);
+
+    size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+    if (pages == 0) return syscall_error(SysErrInvalid);
+    size_t aligned_length = pages * PAGE_SIZE;
+
+    Process* current = Scheduler::get().getCurrentProcess();
+    if (!current) return syscall_error(SysErrInvalid);
+
+    // Resolve the backing file handle (must be an open file in this process).
+    FileDescriptor* file = current->getFD(args.fd);
+    if (!file) return syscall_error(SysErrBadFile);
+
+    // Compute how many bytes are available from `offset`; pages beyond this are
+    // zero-filled on fault and are never written back (EOF semantics).
+    uint64_t fileLength = 0;
+    VNode* node = file->getNode();
+    if (node && node->ops && node->ops->stat) {
+        FileStats st{};
+        if (node->ops->stat(node, &st) == 0 && st.size > offset) {
+            fileLength = st.size - offset;
+        }
+    }
+
+    const bool shared = (flags & kMapShared) != 0;
+
+    PageTable* pageTable = current->getPageTable();
+    uint64_t virt = (addr != 0) ? addr : current->reserveMmapRegion(aligned_length);
+    if (virt == 0) return syscall_error(SysErrNoMemory);
+
+    if (virt >= 0x0000800000000000ULL ||
+        virt + aligned_length < virt ||
+        virt + aligned_length > 0x0000800000000000ULL) {
+        return syscall_error(SysErrNoMemory);
+    }
+
+    // Fixed address: flush any prior MAP_SHARED contents, then drop the old
+    // mapping/reservation before installing the new one.
+    if (addr != 0) {
+        current->mmapSyncRange(virt, aligned_length);
+        unmapUserPages(pageTable, virt, pages);
+        current->mmapRemoveRange(virt, aligned_length);
+        for (size_t i = 0; i < pages; i++) {
+            asm volatile("invlpg (%0)" : : "r"(virt + i * PAGE_SIZE) : "memory");
+        }
+    }
+
+    if (!current->mmapAddFileRegion(virt, aligned_length, prot, file, offset, fileLength, shared)) {
+        return syscall_error(SysErrNoMemory);
+    }
+
+    return virt;
+}
+
+uint64_t Syscall::sys_msync(uint64_t addr, uint64_t length, uint64_t /*flags*/) {
+    if (!addr || length == 0 || (addr & (PAGE_SIZE - 1)) != 0) {
+        return syscall_error(SysErrInvalid);
+    }
+    Process* current = Scheduler::get().getCurrentProcess();
+    if (!current) return syscall_error(SysErrInvalid);
+    const uint64_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+    current->mmapSyncRange(addr, pages * PAGE_SIZE);
+    return 0;
 }
 
 uint64_t Syscall::sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot) {
@@ -98,18 +179,29 @@ uint64_t Syscall::sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot) {
         return syscall_error(SysErrInvalid);
     }
 
+    PageTable* pageTable = current->getPageTable();
     const uint64_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
-    if (!VMM::ProtectRangeIn(current->getPageTable(), addr, pages, pageFlagsForProtection(prot, false))) {
-        return syscall_error(SysErrInvalid);
+    // PROT_NONE is treated as read/write (legacy reserve-and-write semantics
+    // relied on by userspace); explicit PROT_READ/PROT_EXEC are honored.
+    const uint64_t leafFlags = pageFlagsForProtection(prot, true);
+
+    // Re-protect only pages that are currently present; not-yet-faulted lazy
+    // pages will materialize with the new protection from the updated region
+    // record below. This keeps mprotect working on demand-paged mappings.
+    for (uint64_t i = 0; i < pages; i++) {
+        const uint64_t va = addr + i * PAGE_SIZE;
+        if (VMM::VirtualToPhysicalIn(pageTable, va) == 0) {
+            continue;
+        }
+        // Break any copy-on-write share first so raising write permission never
+        // makes a shared frame writable in place.
+        VMM::HandleCowFault(pageTable, va);
+        VMM::ProtectPageIn(pageTable, va, leafFlags);
+        asm volatile("invlpg (%0)" : : "r"(va) : "memory");
     }
 
-    // Flush stale TLB entries for the range so the new protection (e.g. clearing
-    // the NX bit for JIT/-run executable pages) takes effect immediately.
-    // Without this a subsequent instruction fetch faults against the cached
-    // (still-NX) translation.
-    for (uint64_t i = 0; i < pages; i++) {
-        asm volatile("invlpg (%0)" : : "r"(addr + i * PAGE_SIZE) : "memory");
-    }
+    // Record the new protection for the region so lazy faults honor it.
+    current->mmapProtectRange(addr, pages * PAGE_SIZE, prot);
 
     return 0;
 }
@@ -121,7 +213,11 @@ uint64_t Syscall::sys_munmap(uint64_t addr, uint64_t length) {
     Process* current = Scheduler::get().getCurrentProcess();
     if (!current) return syscall_error(SysErrInvalid);
 
+    // Flush dirty MAP_SHARED file pages before the frames disappear, then free
+    // any present frames and drop the region reservation.
+    current->mmapSyncRange(addr, pages * PAGE_SIZE);
     unmapUserPages(current->getPageTable(), addr, pages);
+    current->mmapRemoveRange(addr, pages * PAGE_SIZE);
 
     return 0;
 }

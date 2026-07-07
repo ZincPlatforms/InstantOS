@@ -276,6 +276,20 @@ uint64_t Syscall::handle(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, uin
             return sys_dup2(arg1, arg2);
         case Pipe:
             return sys_pipe(arg1);
+        case Pipe2:
+            return sys_pipe2(arg1, arg2);
+        case Fsync:
+            return sys_fsync(arg1);
+        case MmapFile:
+            return sys_mmap_file(arg1);
+        case Msync:
+            return sys_msync(arg1, arg2, arg3);
+        case FdPath:
+            return sys_fd_path(arg1, arg2, arg3);
+        case FdTableStash:
+            return sys_fdtable_stash(arg1, arg2);
+        case FdTableFetch:
+            return sys_fdtable_fetch(arg1, arg2);
         case Fcntl:
             return sys_fcntl(arg1, arg2, arg3);
         case Poll:
@@ -360,6 +374,8 @@ uint64_t Syscall::handle(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, uin
             return sys_net_get_ping_reply(arg1);
         case ThreadCreate:
             return sys_thread_create(arg1, arg2, arg3);
+        case ThreadClone:
+            return sys_thread_clone(arg1, arg2);
         case ThreadExit:
             return sys_thread_exit(arg1);
         case ThreadJoin:
@@ -419,10 +435,17 @@ bool Syscall::isValidUserPointer(uint64_t ptr, size_t size) {
         return false;
     }
 
+    Process* current = Scheduler::get().getCurrentProcess();
+
     uint64_t firstPage = ptr & ~0xFFFULL;
     uint64_t lastPage = (ptr + size - 1) & ~0xFFFULL;
     for (uint64_t page = firstPage;; page += PAGE_SIZE) {
-        if (!VMM::IsUserMapped(page)) {
+        // A page is acceptable if it is already mapped, or it falls inside a
+        // demand-paged mmap region (which will be populated on first access by
+        // the page-fault handler). This lets syscalls accept lazily-reserved
+        // buffers without pre-faulting every page here.
+        if (!VMM::IsUserMapped(page) &&
+            !(current && current->mmapRegionCovers(page))) {
             return false;
         }
         if (page == lastPage) {
@@ -506,6 +529,16 @@ extern "C" uint64_t syscallHandler(uint64_t syscall_num, uint64_t arg1, uint64_t
         current->getContext()->rax = result;
         if (current->hasValidUserState()) {
             current->handlePendingSignals();
+            if (current->getState() == ProcessState::Terminated) {
+                // A fatal signal (e.g. SIGKILL) terminated us while returning
+                // from the syscall. We must NOT sysret back to user mode: the
+                // dead task would keep running and resurrect itself (its next
+                // syscall/scheduling would overwrite the Terminated state), with
+                // the signal already consumed -- stranding a wait()ing parent.
+                // Hand off to the scheduler, which notifies the parent via
+                // onProcessTerminated() and switches away for good (never returns).
+                Scheduler::get().scheduleFromSyscall();
+            }
         }
     }
 

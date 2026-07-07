@@ -358,6 +358,19 @@ struct GPUVenusVulkan {
 };
 #include <fs/vfs/vfs.hpp>
 
+// Arguments for the file-backed mmap syscall (SyscallNumber::MmapFile). Passed
+// by pointer because the value set (six 64-bit words) exceeds the 5-argument
+// syscall convention. The field order is shared verbatim with the mlibc sysdep
+// (VmMap), so it must not be reordered.
+struct MmapFileArgs {
+    uint64_t addr;    // requested address (0 = kernel chooses)
+    uint64_t length;  // mapping length in bytes
+    uint64_t prot;    // MemoryProt* bits
+    uint64_t flags;   // MAP_* bits (MAP_SHARED/MAP_PRIVATE/MAP_ANONYMOUS/...)
+    uint64_t fd;      // kernel file handle to back the mapping
+    uint64_t offset;  // byte offset into the file (page-aligned)
+};
+
 enum class SyscallNumber : uint64_t {
     OSInfo,
     ProcInfo,
@@ -488,6 +501,14 @@ enum class SyscallNumber : uint64_t {
     GetPeerName,
     GPUVenusProbeCall,
     GPUVenusVulkanCall,
+    Pipe2,
+    Fsync,
+    MmapFile,
+    Msync,
+    FdPath,
+    FdTableStash,
+    FdTableFetch,
+    ThreadClone,
 };
 
 enum MemoryProtection : uint64_t {
@@ -583,6 +604,11 @@ private:
     uint64_t sys_wait(uint64_t pid, uint64_t status, uint64_t options);
     uint64_t sys_kill(uint64_t pid, uint64_t sig);
     uint64_t sys_mmap(uint64_t addr, uint64_t length, uint64_t prot);
+    uint64_t sys_mmap_file(uint64_t argsPtr);
+    uint64_t sys_msync(uint64_t addr, uint64_t length, uint64_t flags);
+    uint64_t sys_fd_path(uint64_t handle, uint64_t buf, uint64_t size);
+    uint64_t sys_fdtable_stash(uint64_t ptr, uint64_t count);
+    uint64_t sys_fdtable_fetch(uint64_t ptr, uint64_t count);
     uint64_t sys_munmap(uint64_t addr, uint64_t length);
     uint64_t sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot);
     uint64_t sys_yield();
@@ -621,10 +647,12 @@ private:
     uint64_t sys_unlink(uint64_t path);
     uint64_t sys_stat(uint64_t path, uint64_t statbuf);
     uint64_t sys_fstat(uint64_t handle, uint64_t statbuf);
+    uint64_t sys_fsync(uint64_t handle);
     uint64_t sys_lstat(uint64_t path, uint64_t statbuf);
     uint64_t sys_dup(uint64_t handle);
     uint64_t sys_dup2(uint64_t oldHandle, uint64_t newHandle);
     uint64_t sys_pipe(uint64_t pipeHandles);
+    uint64_t sys_pipe2(uint64_t pipeHandles, uint64_t flags);
     uint64_t sys_fcntl(uint64_t handle, uint64_t command, uint64_t value);
     uint64_t sys_ioctl(uint64_t handle, uint64_t request, uint64_t arg);
     uint64_t sys_access(uint64_t path, uint64_t mode);
@@ -655,6 +683,7 @@ private:
     uint64_t sys_getppid();
     uint64_t sys_spawn(uint64_t path, uint64_t argv, uint64_t envp);
     uint64_t sys_thread_create(uint64_t entry, uint64_t arg, uint64_t stackSize);
+    uint64_t sys_thread_clone(uint64_t entry, uint64_t userStack);
     uint64_t sys_thread_exit(uint64_t code);
     uint64_t sys_thread_join(uint64_t handle, uint64_t statusPtr);
     uint64_t sys_seek(uint64_t handle, uint64_t offset, uint64_t whence);

@@ -32,8 +32,29 @@ constexpr uint64_t kOpenAppend = 02000;
 constexpr uint64_t kOpenNonBlock = 04000;
 constexpr uint64_t kOpenDirectory = 0200000;
 constexpr uint64_t kOpenNoFollow = 0400000;
+// Flags the kernel accepts but does not act on: TTY / large-file / durability
+// advisory bits that GNU userland (gzip/grep/tar/coreutils, autotools configure)
+// routinely ORs into open()/openat(). The open path only inspects the acted-upon
+// flags above, so these are naturally ignored; they are listed here purely so the
+// unsupported-flag guard does not reject the whole open with EINVAL.
+constexpr uint64_t kOpenNoCtty = 0400;        // O_NOCTTY    (no controlling-tty semantics here)
+constexpr uint64_t kOpenLargeFile = 0100000;  // O_LARGEFILE (file offsets are always 64-bit)
+constexpr uint64_t kOpenDsync = 010000;       // O_DSYNC
+constexpr uint64_t kOpenAsync = 020000;       // O_ASYNC
+constexpr uint64_t kOpenDirect = 040000;      // O_DIRECT
+constexpr uint64_t kOpenNoAtime = 01000000;   // O_NOATIME
+constexpr uint64_t kOpenSync = 04010000;      // O_SYNC / O_RSYNC
+// O_PATH (also O_SEARCH / O_EXEC in the mlibc ABI): a "reference-only" open.
+// gnulib/tar/coreutils open directories with O_SEARCH to obtain a fd used purely
+// for fchdir()/openat()/fstat() (never read()/write()). InstantOS has no separate
+// path-handle type, so treat it as an ordinary open; the resulting directory fd
+// works for exactly those operations (verified: fstat/fd_path/chdir all succeed).
+constexpr uint64_t kOpenPath = 010000000;     // O_PATH / O_SEARCH / O_EXEC
+constexpr uint64_t kOpenIgnoredFlags = kOpenNoCtty | kOpenLargeFile | kOpenDsync |
+    kOpenAsync | kOpenDirect | kOpenNoAtime | kOpenSync | kOpenPath;
 constexpr uint64_t kOpenSupportedFlags = kOpenAccessModeMask | kOpenCreate | kOpenExclusive |
-    kOpenTruncate | kOpenAppend | kOpenNonBlock | kOpenDirectory | kOpenNoFollow | kOpenCloseOnExec;
+    kOpenTruncate | kOpenAppend | kOpenNonBlock | kOpenDirectory | kOpenNoFollow |
+    kOpenCloseOnExec | kOpenIgnoredFlags;
 constexpr uint32_t kModeReadBits = 0444;
 constexpr uint32_t kModeWriteBits = 0222;
 constexpr uint32_t kModeExecBits = 0111;
@@ -63,7 +84,16 @@ struct PipeObject {
 struct PipeEndpoint {
     PipeObject* pipe;
     bool writeEnd;
+    bool nonBlock;   // O_NONBLOCK: read/write return -EAGAIN instead of blocking
 };
+
+// Internal sentinels returned by pipeRead/pipeWrite through the int64_t ops ABI.
+// They are distinct negative values so sys_read/sys_write can translate them to
+// the correct userspace errno (a plain -1 would collapse EAGAIN, EPIPE, and
+// EBADF together). They intentionally sit outside the small positive range of a
+// real byte count.
+constexpr int64_t kPipeErrAgain = -static_cast<int64_t>(SysErrAgain);   // -11 (EAGAIN)
+constexpr int64_t kPipeErrPipe = -static_cast<int64_t>(SysErrPipe);     // -29 (EPIPE)
 
 // Named-FIFO registry: all opens of the same on-disk FIFO (identified by its
 // filesystem + inode) share one PipeObject ring buffer, so a writer and reader
@@ -461,6 +491,24 @@ PipeEndpoint* pipeEndpoint(VNode* node) {
     return node ? reinterpret_cast<PipeEndpoint*>(node->getData()) : nullptr;
 }
 
+// Resolve a process handle to its pipe/FIFO endpoint, or nullptr if the handle
+// is not a pipe. Used by fcntl(F_GETFL/F_SETFL) to read and toggle O_NONBLOCK.
+PipeEndpoint* pipeEndpointFromHandle(Process* current, uint64_t handle) {
+    if (!current) {
+        return nullptr;
+    }
+    HandleEntry* entry = current->getHandle(handle);
+    if (!entry || entry->type != HandleType::File) {
+        return nullptr;
+    }
+    auto* fileFd = reinterpret_cast<FileDescriptor*>(entry->object);
+    VNode* node = fileFd ? fileFd->getNode() : nullptr;
+    if (!node || node->getType() != FileType::Pipe) {
+        return nullptr;
+    }
+    return pipeEndpoint(node);
+}
+
 int16_t pollPipe(PipeEndpoint* endpoint, int16_t events) {
     if (!endpoint || !endpoint->pipe) {
         return kPollNval;
@@ -628,7 +676,12 @@ int64_t pipeRead(VNode* node, void* buffer, uint64_t size, uint64_t) {
 
     while (pipe->size == 0) {
         if (pipe->writeOpen == 0) {
-            return 0;
+            return 0;   // EOF: no writers remain and the buffer is drained
+        }
+        // O_NONBLOCK: a would-be-blocking read on an empty pipe with live
+        // writers returns EAGAIN instead of sleeping.
+        if (endpoint->nonBlock) {
+            return kPipeErrAgain;
         }
         if (!blockCurrentForPipe()) {
             return -1;
@@ -661,16 +714,36 @@ int64_t pipeWrite(VNode* node, const void* buffer, uint64_t size, uint64_t) {
         return -1;
     }
 
+    // Writing to a pipe whose read end is fully closed is a broken pipe: POSIX
+    // requires SIGPIPE to be raised on the writer and, if the signal is caught
+    // or ignored, write() to fail with EPIPE. Raise it once here (on the calling
+    // process) and let the caller translate the sentinel into -EPIPE.
+    auto brokenPipe = [&](uint64_t alreadyWritten) -> int64_t {
+        if (alreadyWritten > 0) {
+            return static_cast<int64_t>(alreadyWritten);
+        }
+        if (Process* current = Scheduler::get().getCurrentProcess()) {
+            current->sendSignal(SIGPIPE);
+        }
+        return kPipeErrPipe;
+    };
+
     uint64_t written = 0;
     const char* in = reinterpret_cast<const char*>(buffer);
     while (written < size) {
         if (pipe->readOpen == 0) {
-            return written > 0 ? static_cast<int64_t>(written) : -1;
+            return brokenPipe(written);
         }
 
         while (pipe->size == kPipeBufferSize) {
             if (pipe->readOpen == 0) {
-                return written > 0 ? static_cast<int64_t>(written) : -1;
+                return brokenPipe(written);
+            }
+            // O_NONBLOCK: never sleep. If nothing has been written yet the call
+            // fails with EAGAIN; otherwise return the partial count so the caller
+            // can retry the remainder.
+            if (endpoint->nonBlock) {
+                return written > 0 ? static_cast<int64_t>(written) : kPipeErrAgain;
             }
             if (!blockCurrentForPipe()) {
                 return written > 0 ? static_cast<int64_t>(written) : -1;
@@ -861,7 +934,7 @@ uint64_t openFifo(Process* current, VNode* fifoNode, uint64_t flags) {
     const bool wantRead = (access != kOpenWriteOnly);  // RO or RW
     const bool nonBlock = (flags & kOpenNonBlock) != 0;
 
-    auto* endpoint = new PipeEndpoint { pipe, wantWrite && !wantRead };
+    auto* endpoint = new PipeEndpoint { pipe, wantWrite && !wantRead, nonBlock };
     VNode* node = new VNode(nullptr, fifoNode->getInode(), FileType::Pipe);
     if (!endpoint || !node) {
         delete endpoint;
@@ -979,6 +1052,16 @@ uint64_t Syscall::sys_write(uint64_t fileHandle, uint64_t buf, uint64_t count) {
         int64_t written = VFS::get().write(fileFd, chunk, toCopy);
         if (written < 0) {
             VNode* node = fileFd->getNode();
+            // A pipe/FIFO reports EAGAIN (nonblocking, would block) or EPIPE
+            // (broken pipe) through distinct negative sentinels. Surface the
+            // first-chunk error directly; a later chunk failing after progress
+            // is reported as a short write below via `total`.
+            if (written == kPipeErrAgain) {
+                return total > 0 ? total : syscall_error(SysErrAgain);
+            }
+            if (written == kPipeErrPipe) {
+                return total > 0 ? total : syscall_error(SysErrPipe);
+            }
             if (total > 0) {
                 return total;
             }
@@ -1136,6 +1219,10 @@ uint64_t Syscall::sys_read(uint64_t fileHandle, uint64_t buf, uint64_t count) {
             if (total > 0) {
                 return total;
             }
+            // A nonblocking pipe/FIFO read with no data available reports EAGAIN.
+            if (bytesRead == kPipeErrAgain) {
+                return syscall_error(SysErrAgain);
+            }
             VNode* node = fileFd->getNode();
             return syscall_error(node && node->getType() == FileType::Directory ? SysErrIsDirectory : SysErrBadFile);
         }
@@ -1152,6 +1239,33 @@ uint64_t Syscall::sys_read(uint64_t fileHandle, uint64_t buf, uint64_t count) {
     }
     
     return total;
+}
+
+uint64_t Syscall::sys_fd_path(uint64_t handle, uint64_t buf, uint64_t size) {
+    // Report the absolute canonical path an fd was opened with. libc uses this
+    // to resolve the *at family (openat/unlinkat/...) and fchdir against a real
+    // dirfd: it fetches the directory's path, composes dir/relative, and calls
+    // the existing path-based syscalls. Writes a NUL-terminated string; returns
+    // its length (excluding the NUL) on success.
+    if (size == 0 || !isValidUserPointer(buf, size)) {
+        return syscall_error(SysErrInvalid);
+    }
+    Process* current = Scheduler::get().getCurrentProcess();
+    if (!current) return syscall_error(SysErrInvalid);
+
+    FileDescriptor* fd = current->getFD(handle);
+    if (!fd) return syscall_error(SysErrBadFile);
+
+    const char* p = fd->getPath();
+    if (!p || p[0] == '\0') {
+        // Pathless fd (pipe/socket/stdio): nothing to resolve against.
+        return syscall_error(SysErrInvalid);
+    }
+    size_t len = 0;
+    while (p[len]) len++;
+    if (len + 1 > size) return syscall_error(SysErrRange);
+    if (!copyToUser(buf, p, len + 1)) return syscall_error(SysErrInvalid);
+    return len;
 }
 
 uint64_t Syscall::sys_open(uint64_t path, uint64_t flags, uint64_t mode) {
@@ -1429,8 +1543,11 @@ uint64_t Syscall::sys_unlink(uint64_t path) {
         return syscall_error(SysErrAccess);
     }
 
+    // lstat (not stat): unlink operates on the named entry itself, so a symlink
+    // -- including a dangling one whose target is gone -- must be removable, and
+    // a symlink-to-directory must not be mistaken for a directory (EISDIR).
     FileStats stats {};
-    if (VFS::get().stat(pathname, &stats) != 0) {
+    if (VFS::get().lstat(pathname, &stats) != 0) {
         return missingPathError(pathname);
     }
     if (requiresDirectory && stats.type != FileType::Directory) {
@@ -1659,6 +1776,24 @@ uint64_t Syscall::sys_fstat(uint64_t handle, uint64_t statbuf) {
     return copyStatToUser(fileStats, statbuf) ? 0 : syscall_error(SysErrInvalid);
 }
 
+uint64_t Syscall::sys_fsync(uint64_t handle) {
+    Process* current = Scheduler::get().getCurrentProcess();
+    if (!current) return syscall_error(SysErrInvalid);
+
+    FileDescriptor* fileFd = current->getFD(handle);
+    if (!fileFd || !fileFd->getNode()) {
+        return syscall_error(SysErrBadFile);
+    }
+
+    VNode* node = fileFd->getNode();
+    // Filesystems without an fsync hook (RamFS, devfs, ...) hold nothing on a
+    // durability barrier, so fsync on a valid fd is a successful no-op.
+    if (!node->ops || !node->ops->fsync) {
+        return 0;
+    }
+    return node->ops->fsync(node) == 0 ? 0 : syscall_error(SysErrInvalid);
+}
+
 uint64_t Syscall::sys_dup(uint64_t handle) {
     Process* current = Scheduler::get().getCurrentProcess();
     if (!current) return syscall_error(SysErrInvalid);
@@ -1685,6 +1820,19 @@ uint64_t Syscall::sys_dup2(uint64_t oldHandle, uint64_t newHandle) {
 }
 
 uint64_t Syscall::sys_pipe(uint64_t pipeHandles) {
+    return sys_pipe2(pipeHandles, 0);
+}
+
+uint64_t Syscall::sys_pipe2(uint64_t pipeHandles, uint64_t flags) {
+    // pipe2 accepts O_CLOEXEC (mark both ends close-on-exec) and O_NONBLOCK
+    // (both ends never block); any other flag is rejected.
+    constexpr uint64_t kSupportedPipe2Flags = kOpenCloseOnExec | kOpenNonBlock;
+    if ((flags & ~kSupportedPipe2Flags) != 0) {
+        return syscall_error(SysErrInvalid);
+    }
+    const bool nonBlock = (flags & kOpenNonBlock) != 0;
+    const bool closeOnExec = (flags & kOpenCloseOnExec) != 0;
+
     if (!isValidUserPointer(pipeHandles, sizeof(uint64_t) * 2)) {
         return syscall_error(SysErrInvalid);
     }
@@ -1695,8 +1843,8 @@ uint64_t Syscall::sys_pipe(uint64_t pipeHandles) {
     }
 
     PipeObject* pipe = new PipeObject {};
-    PipeEndpoint* readEndpoint = new PipeEndpoint { pipe, false };
-    PipeEndpoint* writeEndpoint = new PipeEndpoint { pipe, true };
+    PipeEndpoint* readEndpoint = new PipeEndpoint { pipe, false, nonBlock };
+    PipeEndpoint* writeEndpoint = new PipeEndpoint { pipe, true, nonBlock };
     VNode* readNode = new VNode(nullptr, 0, FileType::Pipe);
     VNode* writeNode = new VNode(nullptr, 0, FileType::Pipe);
     if (!pipe || !readEndpoint || !writeEndpoint || !readNode || !writeNode) {
@@ -1738,14 +1886,14 @@ uint64_t Syscall::sys_pipe(uint64_t pipeHandles) {
     }
 
     uint64_t handles[2];
-    handles[0] = current->allocateFD(readFd, HandleRightRead | HandleRightDuplicate);
+    handles[0] = current->allocateFD(readFd, HandleRightRead | HandleRightDuplicate, closeOnExec);
     if (handles[0] == static_cast<uint64_t>(-1)) {
         VFS::get().close(readFd);
         VFS::get().close(writeFd);
         return syscall_error(SysErrNoSpace);
     }
 
-    handles[1] = current->allocateFD(writeFd, HandleRightWrite | HandleRightDuplicate);
+    handles[1] = current->allocateFD(writeFd, HandleRightWrite | HandleRightDuplicate, closeOnExec);
     if (handles[1] == static_cast<uint64_t>(-1)) {
         current->closeHandle(handles[0]);
         VFS::get().close(writeFd);
@@ -1792,12 +1940,23 @@ uint64_t Syscall::sys_fcntl(uint64_t handle, uint64_t command, uint64_t value) {
                 return syscall_error(SysErrBadFile);
             }
             return 0;
-        case kFcntlGetFL:
-            // The kernel does not track per-fd status flags; report read/write,
-            // no special modes (O_NONBLOCK etc.).
-            return kOpenReadWrite;
+        case kFcntlGetFL: {
+            // The kernel does not track general per-fd status flags, but pipes
+            // and FIFOs honor O_NONBLOCK, so report it for those endpoints.
+            uint64_t flags = kOpenReadWrite;
+            if (PipeEndpoint* ep = pipeEndpointFromHandle(current, handle)) {
+                if (ep->nonBlock) {
+                    flags |= kOpenNonBlock;
+                }
+            }
+            return flags;
+        }
         case kFcntlSetFL:
-            // Accept and ignore status-flag changes (e.g. O_NONBLOCK toggles).
+            // The only status flag the kernel tracks is O_NONBLOCK on pipes and
+            // FIFOs; persist it there and accept/ignore the rest.
+            if (PipeEndpoint* ep = pipeEndpointFromHandle(current, handle)) {
+                ep->nonBlock = (value & kOpenNonBlock) != 0;
+            }
             return 0;
         case kFcntlDupFD:
         case kFcntlDupFDCloExec:
