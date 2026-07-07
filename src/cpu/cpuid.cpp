@@ -503,8 +503,33 @@ void CPU::initializeExtendedState(void* state) {
     saveExtendedState(state);
 }
 
+// XSAVE/XSAVEOPT/XRSTOR #GP if the 512..-byte area is not 64-byte aligned (or the
+// pointer is non-canonical). A fresh kmalloc_aligned(,64) buffer is always fine,
+// so a bad operand here means the FPUState* was corrupted (kernel heap/pointer
+// corruption). Historically that produced an unrecoverable #GP -> #BP storm that
+// wedged the whole OS (observed via thread_create). Detect it, log the offending
+// pointer for diagnosis, and skip the FPU op so the kernel stays alive.
+static bool xstateOperandOk(const void* state) {
+    uintptr_t a = reinterpret_cast<uintptr_t>(state);
+    if ((a & 63) != 0) return false;              // must be 64-byte aligned
+    uintptr_t hi = a >> 47;                        // canonical: bits 63:47 identical
+    return hi == 0 || hi == 0x1FFFF;
+}
+
+static void reportBadXstate(const char* op, const void* state) {
+    Console::get().drawText("[xstate] BAD ");
+    Console::get().drawText(op);
+    Console::get().drawText(" ptr=");
+    Console::get().drawHex(reinterpret_cast<uint64_t>(state));
+    Console::get().drawText(" (skipped)\n");
+}
+
 void CPU::saveExtendedState(void* state) {
     if (!state) {
+        return;
+    }
+    if (!xstateOperandOk(state)) {
+        reportBadXstate("save", state);
         return;
     }
 
@@ -532,6 +557,10 @@ void CPU::saveExtendedState(void* state) {
 
 void CPU::restoreExtendedState(const void* state) {
     if (!state) {
+        return;
+    }
+    if (!xstateOperandOk(state)) {
+        reportBadXstate("restore", state);
         return;
     }
 
