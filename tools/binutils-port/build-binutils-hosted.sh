@@ -68,6 +68,7 @@ if [ "${RECONFIGURE:-0}" = "1" ] || [ ! -f "$OBJ/Makefile" ]; then
       --with-sysroot=/ \
       --disable-nls --disable-werror \
       --disable-gold --disable-gprofng --disable-libctf --disable-plugins \
+      --without-zstd --without-debuginfod --without-msgpack \
       --enable-default-hash-style=sysv )
 fi
 

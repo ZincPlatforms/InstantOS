@@ -21,6 +21,13 @@ BX="$BUILD_DIR/binutils-cross/bin"
 JOBS="${JOBS:-6}"
 LANGS="${LANGS:-c}"
 
+# GCC 13's libcody (C++ module mapper) uses u8"" string literals that a modern
+# host g++ (>=14; this box has GCC 16) treats as char8_t (C++20), breaking its
+# S2C() overloads. Build the host tools with char8_t disabled. Harmless on
+# older hosts and for the in-tree gmp/mpfr/mpc host builds.
+export CXX="${CXX:-g++ -fno-char8_t}"
+export CXX_FOR_BUILD="${CXX_FOR_BUILD:-$CXX}"
+
 [ -d "$SRC" ] || { echo "GCC source missing at $SRC" >&2; exit 2; }
 [ -f "$MLIBC_ROOT/lib/libc.so" ] || { echo "mlibc missing" >&2; exit 2; }
 [ -x "$BX/x86_64-unknown-instantos-as" ] || { echo "binutils-cross missing" >&2; exit 2; }
@@ -47,6 +54,14 @@ echo "sysroot assembled at $SYSROOT"
 
 # --- apply the instantos GCC port ---
 bash "$REPO/tools/gcc-port/apply-gcc-instantos-port.sh" "$SRC"
+
+# Host-compat (modern host g++ >=15, e.g. GCC 16): its libstdc++ <string> pulls
+# in <locale> whose std::toupper(c,loc) collides with gcc/system.h's safe-ctype.h
+# ctype poisoning. Pre-include <string>/<locale> before the poisoning. Idempotent.
+if ! grep -q 'instantos host-compat' "$SRC/gcc/system.h"; then
+  perl -0pi -e 's{(# include <type_traits>\n)(#endif)}{$1/* instantos host-compat: pre-include locale headers before safe-ctype.h */\n# include <string>\n# include <locale>\n$2}' "$SRC/gcc/system.h"
+  grep -q 'instantos host-compat' "$SRC/gcc/system.h" && echo "patched gcc/system.h (host-compat)" || echo "WARN: system.h host-compat anchor not found" >&2
+fi
 
 # --- configure ---
 if [ "${RECONFIGURE:-0}" = "1" ] || [ ! -f "$OBJ/Makefile" ]; then

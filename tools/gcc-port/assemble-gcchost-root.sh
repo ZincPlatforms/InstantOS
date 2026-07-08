@@ -81,5 +81,15 @@ int main(void){ printf("HELLO_FROM_GCCHOST_CC\n"); return 0; }
 EOF
 cp "$(dirname "${BASH_SOURCE[0]}")/hello.cpp" "$ROOT/hello.cpp"
 
+echo "== strip hosted binaries =="
+# Unstripped cc1/cc1plus are ~300 MB each (debug_info); the kernel's exec cannot
+# load a binary that large ("failed to read user binary"). Strip everything.
+STRIP_TOOL="${STRIP_TOOL:-llvm-strip}"
+find "$ROOT/usr/libexec" "$ROOT/usr/bin" -type f 2>/dev/null | while read -r f; do
+  case "$(file -b "$f" 2>/dev/null)" in
+    *ELF*executable*|*ELF*shared*) "$STRIP_TOOL" --strip-all "$f" 2>/dev/null || true ;;
+  esac
+done
+
 du -sh "$ROOT"
 echo "gcchost root assembled at: $ROOT"
