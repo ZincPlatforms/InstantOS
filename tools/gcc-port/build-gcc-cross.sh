@@ -9,7 +9,7 @@
 #   RECONFIGURE=1           force reconfigure
 set -euo pipefail
 
-REPO="/mnt/c/Users/Administrator/projects/InstantOS"
+REPO="/home/sky/projects/InstantOS"
 BUILD_DIR="$REPO/build"
 NATIVE="/home/sky/gcc-port"
 SRC="$NATIVE/gcc-13.3.0"

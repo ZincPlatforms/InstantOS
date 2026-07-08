@@ -15,7 +15,7 @@ GCC_SRC="${GCC_SRC:-/home/sky/gcc-port/gcc-13.3.0}"
 BUILD="${GCC_HOSTED_BUILD:-/home/sky/gcc-port/build-hosted}"
 PREFIX="${GCC_HOSTED_PREFIX:-/home/sky/gcc-port/gcc-hosted-install}"
 CROSS_BIN="/home/sky/gcc-port/gcc-install/bin"
-BINUTILS_CROSS="/mnt/c/Users/Administrator/projects/InstantOS/build/binutils-cross/bin"
+BINUTILS_CROSS="/home/sky/projects/InstantOS/build/binutils-cross/bin"
 
 # The cross compiler (host compiler) + cross binutils (host & target tools).
 export PATH="$CROSS_BIN:$BINUTILS_CROSS:$PATH"
