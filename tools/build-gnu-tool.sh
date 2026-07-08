@@ -20,6 +20,10 @@ case "$PKG" in
   sed)  VER="sed-4.9";   URLBASE="sed";  BINPATHS="sed/sed";     XARGS="" ;;
   grep) VER="grep-3.11"; URLBASE="grep"; BINPATHS="src/grep";    XARGS="--disable-perl-regexp" ;;
   tar)  VER="tar-1.35";  URLBASE="tar";  BINPATHS="src/tar";     XARGS="--without-selinux --disable-acl --disable-xattrs --without-posix-acls" ;;
+  awk)  VER="gawk-5.3.0"; URLBASE="gawk"; BINPATHS="gawk";       XARGS="--disable-extensions --disable-mpfr" ;;
+  cmp)  VER="diffutils-3.10"; URLBASE="diffutils"; BINPATHS="src/cmp"; XARGS=""; URL="${URL:-https://ftp.gnu.org/gnu/diffutils/${VER}.tar.xz}" ;;
+  diff) VER="diffutils-3.10"; URLBASE="diffutils"; BINPATHS="src/diff"; XARGS=""; URL="${URL:-https://ftp.gnu.org/gnu/diffutils/${VER}.tar.xz}" ;;
+  m4)   VER="m4-1.4.19"; URLBASE="m4";   BINPATHS="src/m4";      XARGS="" ;;
   *) echo "unknown package: $PKG" >&2; exit 2 ;;
 esac
 URL="${URL:-https://ftp.gnu.org/gnu/${URLBASE}/${VER}.tar.gz}"
