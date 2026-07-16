@@ -3,6 +3,8 @@
 #include <memory/heap.hpp>
 #include <common/string.hpp>
 #include <common/krandom.hpp>
+#include <graphics/console.hpp>
+#include <cpu/cereal/cereal.hpp>
 
 namespace {
 DevFS* gActiveDevFS = nullptr;
@@ -105,6 +107,9 @@ VNode* devRootLookup(VNode*, const char* name) {
     if (nameEquals(name, "tty")) {
         return gActiveDevFS->getTtyNode();
     }
+    if (nameEquals(name, "console")) {
+        return gActiveDevFS->getConsoleNode();
+    }
     if (nameEquals(name, "null")) {
         return gActiveDevFS->getNullNode();
     }
@@ -135,7 +140,7 @@ VNode* devPtsLookup(VNode*, const char* name) {
 }
 
 int devRootReaddir(VNode*, DirEntry* entries, uint64_t count, uint64_t* read) {
-    static const char* names[] = { ".", "..", "ptmx", "pts", "tty", "null", "zero", "urandom", "random" };
+    static const char* names[] = { ".", "..", "ptmx", "pts", "tty", "console", "null", "zero", "urandom", "random" };
     constexpr uint64_t kCount = 9;
     uint64_t produced = 0;
     for (uint64_t i = 0; i < kCount && produced < count; i++) {
@@ -189,6 +194,25 @@ int devPtsReaddir(VNode*, DirEntry* entries, uint64_t count, uint64_t* read) {
 int64_t devNullRead(VNode*, void*, uint64_t, uint64_t) { return 0; }
 int64_t devNullWrite(VNode*, const void*, uint64_t size, uint64_t) { return (int64_t)size; }
 
+// /dev/console: a real, dup-able char device for userland stdio. Read returns
+// EOF; write mirrors to the framebuffer console and the serial port (matching
+// the kernel's implicit fd 1/2 path). Giving processes a bound console handle
+// lets them dup()/dup2() their stdout/stderr (e.g. autoconf `exec 6>&1`), which
+// the bare implicit console (no handle) cannot support.
+int64_t devConsoleRead(VNode*, void*, uint64_t, uint64_t) { return 0; }
+int64_t devConsoleWrite(VNode*, const void* buffer, uint64_t size, uint64_t) {
+    if (!buffer) return -1;
+    const char* p = static_cast<const char*>(buffer);
+    // Console::drawText already mirrors each char to the serial port
+    // (writeCharUnlocked -> Cereal), so do NOT also write to Cereal here (that
+    // would double every byte on the serial capture).
+    for (uint64_t i = 0; i < size; i++) {
+        char temp[2] = { p[i], '\0' };
+        Console::get().drawText(temp);
+    }
+    return (int64_t)size;
+}
+
 // /dev/zero: read fills zeros, write discards.
 int64_t devZeroRead(VNode*, void* buffer, uint64_t size, uint64_t) {
     if (buffer && size) memset(buffer, 0, size);
@@ -205,10 +229,12 @@ int64_t devRandomRead(VNode*, void* buffer, uint64_t size, uint64_t) {
 
 DevFS::DevFS() : FileSystem("devfs"),
                  rootNode(nullptr), ptmxNode(nullptr), ptsDirNode(nullptr), ttyNode(nullptr),
+                 consoleNode(nullptr),
                  nullNode(nullptr), zeroNode(nullptr), urandomNode(nullptr), randomNode(nullptr) {
     memset(&rootOps, 0, sizeof(rootOps));
     memset(&ptmxOps, 0, sizeof(ptmxOps));
     memset(&ptsDirOps, 0, sizeof(ptsDirOps));
+    memset(&consoleOps, 0, sizeof(consoleOps));
     memset(&nullOps, 0, sizeof(nullOps));
     memset(&zeroOps, 0, sizeof(zeroOps));
     memset(&randomOps, 0, sizeof(randomOps));
@@ -227,6 +253,10 @@ DevFS::DevFS() : FileSystem("devfs"),
     ptsDirOps.lookup = devPtsLookup;
     ptsDirOps.readdir = devPtsReaddir;
 
+    consoleOps.stat = devCharStat;
+    consoleOps.read = devConsoleRead;
+    consoleOps.write = devConsoleWrite;
+
     // /dev/null + /dev/zero + /dev/urandom + /dev/random char devices.
     nullOps.stat = devCharStat;
     nullOps.read = devNullRead;
@@ -244,6 +274,7 @@ DevFS::DevFS() : FileSystem("devfs"),
     ptmxNode = new VNode(this, KindPtmx, FileType::CharDevice);
     ptsDirNode = new VNode(this, KindPtsDir, FileType::Directory);
     ttyNode = new VNode(this, KindTty, FileType::CharDevice);
+    consoleNode = new VNode(this, KindConsole, FileType::CharDevice);
     nullNode = new VNode(this, KindNull, FileType::CharDevice);
     zeroNode = new VNode(this, KindZero, FileType::CharDevice);
     urandomNode = new VNode(this, KindUrandom, FileType::CharDevice);
@@ -253,6 +284,7 @@ DevFS::DevFS() : FileSystem("devfs"),
     if (ptmxNode) { ptmxNode->ops = &ptmxOps; ptmxNode->refCount = 1; }
     if (ptsDirNode) { ptsDirNode->ops = &ptsDirOps; ptsDirNode->refCount = 1; }
     if (ttyNode) { ttyNode->ops = &ptmxOps; ttyNode->refCount = 1; }
+    if (consoleNode) { consoleNode->ops = &consoleOps; consoleNode->refCount = 1; }
     if (nullNode) { nullNode->ops = &nullOps; nullNode->refCount = 1; }
     if (zeroNode) { zeroNode->ops = &zeroOps; zeroNode->refCount = 1; }
     if (urandomNode) { urandomNode->ops = &randomOps; urandomNode->refCount = 1; }
@@ -269,6 +301,7 @@ DevFS::~DevFS() {
     delete ptmxNode;
     delete ptsDirNode;
     delete ttyNode;
+    delete consoleNode;
     delete nullNode;
     delete zeroNode;
     delete urandomNode;

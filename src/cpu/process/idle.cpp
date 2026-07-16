@@ -7,6 +7,6 @@ extern "C" void idleLoop() {
         USBInput::get().poll();
         I2CHIDController::get().poll();
         Keyboard::get().servicePendingInput();
-        asm volatile("sti; pause");
+        asm volatile("sti; hlt");
     }
 }

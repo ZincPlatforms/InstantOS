@@ -113,7 +113,7 @@ bool mapFramebufferIntoCurrentProcess(iFramebuffer* fb, uint64_t* userBase) {
     const size_t fbSizeBytes = fb->getFBSize();
     const size_t pages = (fbSizeBytes + PAGE_SIZE - 1) / PAGE_SIZE;
 
-    uint64_t flags = Present | ReadWrite | UserSuper | NoExecute;
+    uint64_t flags = Present | ReadWrite | UserSuper | NoExecute | kSharedFrame;
     VirtIOGPUDriver& gpu = VirtIOGPUDriver::get();
     if (!gpu.isInitialized() || gpu.getFramebuffer() != fb->getRaw()) {
         flags |= CacheDisab;

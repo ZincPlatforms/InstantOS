@@ -7,7 +7,7 @@
 #include <memory/pmm.hpp>
 
 namespace {
-constexpr uint64_t kSharedMapFlags = Present | ReadWrite | UserSuper | NoExecute;
+constexpr uint64_t kSharedMapFlags = Present | ReadWrite | UserSuper | NoExecute | kSharedFrame;
 
 uint64_t saveInterruptFlagsAndDisable() {
     uint64_t flags = 0;

@@ -517,19 +517,33 @@ bool Process::cloneAddressSpaceFrom(Process* parent) {
                     const uint64_t srcPhys = pte & ADDR_MASK;
                     const uint64_t flags = pte & ~ADDR_MASK;
 
-                    // The user stack is eagerly copied: it is small and, for
-                    // first-generation processes, heap-backed (kmalloc), which
-                    // must never enter the PMM copy-on-write refcount scheme
-                    // (the destructor kfree()s it by virtual->physical lookup).
-                    const bool inStack = userStackSize &&
-                        vaddr >= userStackBase &&
-                        vaddr < userStackBase + userStackSize;
+                    // The user stack is eagerly copied: it is small and is
+                    // heap-backed (kmalloc) for every exec'd/spawn'd process
+                    // (createUserProcessWithArgs kmalloc_aligned()s it), which
+                    // must never enter the PMM copy-on-write refcount scheme -- a
+                    // COW break or teardown FreeFrame() would hand a live kmalloc
+                    // arena frame back to the PMM, which then re-allocates it (e.g.
+                    // for tmpfs during an in-OS untar) while the heap still owns
+                    // it, double-mapping the frame and corrupting both users
+                    // (observed: binutils source text overwriting collect2's
+                    // .got/stack -> GOT[environ]=0 NULL-write crash).
+                    // NOTE: test against the PARENT's stack region -- `this` is the
+                    // freshly bare-constructed fork child whose userStack* are 0,
+                    // so using them here disabled the eager copy entirely.
+                    const bool inStack = parent->userStackSize &&
+                        vaddr >= parent->userStackBase &&
+                        vaddr < parent->userStackBase + parent->userStackSize;
 
                     // A page participates in COW if it is writable now, or is
                     // already a shared COW page from an earlier fork generation.
                     const bool cowShare = (flags & ReadWrite) || (flags & kCowPage);
 
-                    if (inStack) {
+                    if (flags & kSharedFrame) {
+                        // IPC shared memory or the framebuffer BAR: shared writable
+                        // across fork, owned by its manager (or MMIO). Never COW or
+                        // refcount it here -- teardown must not free it either.
+                        VMM::MapPageInto(childPml4, vaddr, srcPhys, flags);
+                    } else if (inStack) {
                         // Private eager copy (legacy behavior for the stack).
                         uint64_t newPhys = PMM::AllocFrames(1);
                         if (!newPhys) {

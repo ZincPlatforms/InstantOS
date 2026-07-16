@@ -24,13 +24,54 @@ uint64_t pageFlagsForProtection(uint64_t prot, bool defaultReadWrite) {
     return flags;
 }
 
+// Run page-table mutations with the KERNEL address space active so the VMM's
+// raw physical (low-identity-map) page-table walks are never shadowed by a low
+// non-PIE (ET_EXEC) user image in the current CR3. Under memory pressure
+// AllocTable() falls back below KERNEL_HIGH_ALLOC_MIN, placing a page-table
+// frame inside the image window; a walk/store through its identity VA in the
+// process's own address space then scribbles into the process's .data/.got
+// (observed: collect2's GOT PTE corrupted, only under the in-OS binutils build).
+// The VMM ops here take an explicit pageTable and reach frame contents only via
+// PhysToVirt, so none of them need the user CR3. Mirrors sys_fork/sys_exec.
+struct KernelAsScope {
+    uint64_t saved;
+    KernelAsScope() {
+        asm volatile("mov %%cr3, %0" : "=r"(saved));
+        PageTable* k = VMM::GetKernelAddressSpace();
+        if (k) VMM::SetAddressSpace(k);
+    }
+    ~KernelAsScope() { asm volatile("mov %0, %%cr3" :: "r"(saved) : "memory"); }
+};
+
 void unmapUserPages(PageTable* pageTable, uint64_t addr, size_t pages) {
+    PageTable* kernelPt = VMM::GetKernelAddressSpace();
     for (size_t i = 0; i < pages; i++) {
         const uint64_t va = addr + i * PAGE_SIZE;
         const uint64_t pa = VMM::VirtualToPhysicalIn(pageTable, va);
         if (pa) {
+            const uint64_t frame = (pa & ~0xFFFULL);
+            // Is this the inherited kernel/firmware identity map (VA==kernel's PA
+            // for this VA)? Those frames are shared kernel memory present in every
+            // process's low half.
+            const bool sharedIdentity = kernelPt &&
+                (VMM::VirtualToPhysicalIn(kernelPt, va) & ~0xFFFULL) == frame;
+
+            // Always drop the mapping from THIS address space. UnmapPageFrom
+            // COW-clones the shallow-shared low-half tables before clearing, so
+            // the kernel's own identity map is never disturbed. Removing the alias
+            // is required so a subsequent (fixed-address) mmap can be re-backed by
+            // a fresh private frame via the demand-fault path -- otherwise the
+            // "already backed" check would leave the supervisor identity page in
+            // place and a user access would fault (observed: ld.so loading a small
+            // dependency at a low fixed base over the identity window).
             VMM::UnmapPageFrom(pageTable, va);
-            PMM::FreeFrame(pa & ~0xFFFULL);
+
+            // Only return the frame to the PMM when it is genuinely owned by this
+            // address space; never free the inherited identity map (double-free /
+            // frame-reuse corruption -- root cause of the P7.1 crashes).
+            if (!sharedIdentity) {
+                PMM::FreeFrame(frame);
+            }
         }
     }
 }
@@ -64,6 +105,7 @@ uint64_t Syscall::sys_mmap(uint64_t addr, uint64_t length, uint64_t prot) {
     // lazily (and zero-filled) by Process::handleDemandFault() on first access,
     // so a large mmap never needs a contiguous physical block up front.
     // For an explicit fixed address, drop any prior mapping/reservation there.
+    KernelAsScope kas;  // page-table ops below run unshadowed on the kernel AS
     if (addr != 0) {
         unmapUserPages(pageTable, virt, pages);
         current->mmapRemoveRange(virt, aligned_length);
@@ -188,6 +230,7 @@ uint64_t Syscall::sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot) {
     // Re-protect only pages that are currently present; not-yet-faulted lazy
     // pages will materialize with the new protection from the updated region
     // record below. This keeps mprotect working on demand-paged mappings.
+    KernelAsScope kas;  // page-table walks below run unshadowed on the kernel AS
     for (uint64_t i = 0; i < pages; i++) {
         const uint64_t va = addr + i * PAGE_SIZE;
         if (VMM::VirtualToPhysicalIn(pageTable, va) == 0) {
@@ -215,9 +258,13 @@ uint64_t Syscall::sys_munmap(uint64_t addr, uint64_t length) {
 
     // Flush dirty MAP_SHARED file pages before the frames disappear, then free
     // any present frames and drop the region reservation.
-    current->mmapSyncRange(addr, pages * PAGE_SIZE);
-    unmapUserPages(current->getPageTable(), addr, pages);
+    {
+        KernelAsScope kas;  // page-table ops below run unshadowed on the kernel AS
+        current->mmapSyncRange(addr, pages * PAGE_SIZE);
+        unmapUserPages(current->getPageTable(), addr, pages);
+    }
     current->mmapRemoveRange(addr, pages * PAGE_SIZE);
 
     return 0;
 }
+                                                                                

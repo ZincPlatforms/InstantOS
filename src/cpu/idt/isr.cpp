@@ -105,8 +105,26 @@ extern "C" void exceptionHandler(InterruptFrame* frame) {
         uint64_t cr2;
         asm volatile("mov %%cr2, %0" : "=r"(cr2));
         Process* faulting = Scheduler::get().getCurrentProcess();
-        if (faulting && faulting->handleDemandFault(cr2)) {
-            return;   // page populated; re-execute the faulting instruction
+        if (faulting && faulting->getPageTable()) {
+            // handleDemandFault() calls MapPageInto(), which walks/updates the
+            // faulting process's page tables via the LOW IDENTITY MAP (raw
+            // physical pointers). If the faulting process is a non-PIE (ET_EXEC)
+            // image at a low VA and any page-table frame lives in that image
+            // window (possible once AllocTable() falls back below
+            // KERNEL_HIGH_ALLOC_MIN under memory pressure), an identity walk in
+            // the process's own address space is shadowed by the image and the
+            // PTE store scribbles into the process's .data/.got instead. Run the
+            // fault-in on the kernel address space, whose full low identity map
+            // is never shadowed by a user image (mirrors sys_fork/sys_exec).
+            uint64_t savedCR3;
+            asm volatile("mov %%cr3, %0" : "=r"(savedCR3));
+            PageTable* kpml4 = VMM::GetKernelAddressSpace();
+            if (kpml4) VMM::SetAddressSpace(kpml4);
+            bool handled = faulting->handleDemandFault(cr2);
+            asm volatile("mov %0, %%cr3" :: "r"(savedCR3) : "memory");
+            if (handled) {
+                return;   // page populated; re-execute the faulting instruction
+            }
         }
     }
 

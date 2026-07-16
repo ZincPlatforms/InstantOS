@@ -142,7 +142,13 @@ static PageTable* clone_table_if_needed(uint64_t& parentEntry) {
     if (!clone) return nullptr;
 
     for (uint64_t i = 0; i < 512; i++) {
-        clone->entries[i] = table->entries[i];
+        // Inherit the shared sub-entries, but CLEAR the private-table marker:
+        // the clone's children still point at the parent/kernel's shared
+        // sub-tables, so a later MapPageInto() write must copy-on-write them
+        // rather than mutate the shared originals (which would corrupt the
+        // kernel identity map and make teardown free live kernel frames).
+        // Mirrors initializeAddressSpace()'s PDPT shallow-copy in process.cpp.
+        clone->entries[i] = table->entries[i] & ~kPrivateTable;
     }
 
     const uint64_t flags = (parentEntry & ~ADDR_MASK) | ReadWrite | kPrivateTable;
@@ -571,19 +577,34 @@ bool VMM::HandleCowFault(PageTable* pml4, uint64_t faultAddr) {
 
     const uint64_t va = faultAddr & ~0xFFFULL;
 
-    // Walk to the leaf PTE.  A COW page is always a 4 KiB leaf; any large page
-    // or missing level along the way means this is not a COW fault.
-    uint64_t pml4e = pml4->entries[PML4Index(va)];
+    // Walk to the leaf PTE THROUGH THE HIGHER-HALF DIRECT MAP, never the low
+    // identity map. This runs in the faulting process's address space, which may
+    // be a non-PIE (ET_EXEC) image mapped at a low VA (e.g. 0x400000..). Any
+    // page-table frame that happens to live in that image window (possible once
+    // AllocTable() falls back below KERNEL_HIGH_ALLOC_MIN under memory pressure)
+    // has its identity VA shadowed by the user image; a raw identity walk would
+    // then read/write the user's image instead of the page tables. The PTE
+    // *store* below (`pt->entries[pti] = ...`) is the dangerous case: it would
+    // scribble a PTE-shaped word into the process's own .data/.got, e.g. zeroing
+    // a GOT slot -> a later NULL write crash (observed: collect2's GOT[environ]
+    // zeroed only under the heavy load of the in-OS binutils build). PhysToVirt
+    // maps every physical frame at a high-half VA present in every address space.
+    auto asTable = [](uint64_t phys) -> PageTable* {
+        return reinterpret_cast<PageTable*>(PhysToVirt(phys & ADDR_MASK));
+    };
+
+    PageTable* pml4v = asTable(reinterpret_cast<uint64_t>(pml4));
+    uint64_t pml4e = pml4v->entries[PML4Index(va)];
     if (!(pml4e & Present)) return false;
-    auto* pdpt = reinterpret_cast<PageTable*>(pml4e & ADDR_MASK);
+    auto* pdpt = asTable(pml4e);
 
     uint64_t pdpte = pdpt->entries[PDPTIndex(va)];
     if (!(pdpte & Present) || (pdpte & LargePage)) return false;
-    auto* pd = reinterpret_cast<PageTable*>(pdpte & ADDR_MASK);
+    auto* pd = asTable(pdpte);
 
     uint64_t pde = pd->entries[PDIndex(va)];
     if (!(pde & Present) || (pde & LargePage)) return false;
-    auto* pt = reinterpret_cast<PageTable*>(pde & ADDR_MASK);
+    auto* pt = asTable(pde);
 
     const uint64_t pti = PTIndex(va);
     const uint64_t pte = pt->entries[pti];
@@ -678,7 +699,23 @@ void VMM::UnmapRangeFrom(PageTable* pml4, uint64_t virtualBase, uint64_t pageCou
 }
 
 namespace {
-void freeMappedFrames(uint64_t entry, int level) {
+// The low half of every user address space inherits the kernel/UEFI identity map
+// (VA==PA) verbatim -- VMM::Initialize() copies the firmware CR3/PML4 and
+// initializeAddressSpace() shallow-copies that low half into every process. Those
+// frames are shared kernel/firmware memory (framebuffer, initrd, kernel image,
+// PMM metadata) that happen to carry the U/S bit from the firmware page tables,
+// so the UserSuper test alone cannot tell them apart from process-private user
+// pages. The authoritative test is whether the KERNEL master table maps this VA
+// to the very same physical frame; if so the frame is kernel-shared and must
+// never be reclaimed by a single address space's teardown (freeing it hands a
+// live kernel frame back to the PMM, which re-hands it out -> frame reuse /
+// use-after-free corruption; root cause of the P7.1 collect2/daemon crashes).
+static bool isKernelInheritedIdentity(uint64_t va, uint64_t pa) {
+    PageTable* k = VMM::GetKernelAddressSpace();
+    return k && (VMM::VirtualToPhysicalIn(k, va) & ~0xFFFULL) == (pa & ~0xFFFULL);
+}
+
+void freeMappedFrames(uint64_t entry, int level, uint64_t va) {
     if (!(entry & Present)) {
         return;
     }
@@ -691,22 +728,42 @@ void freeMappedFrames(uint64_t entry, int level) {
         return;
     }
 
+    // Shared, manager-owned leaves (IPC shared memory, framebuffer BAR) are never
+    // reclaimed by a single address space's teardown; freeing them would return a
+    // frame still mapped elsewhere (or MMIO) to the PMM, which then re-hands it
+    // out -> use-after-free corruption. (Root cause of the P7.1 frame reuse.)
+    if (entry & kSharedFrame) {
+        return;
+    }
+
+    uint64_t pa;
+    uint64_t count;
     if (level == 3 && (entry & LargePage)) {
-        PMM::FreeFrames(entry & 0x000FFFFFC0000000ULL, 512 * 512);
+        pa = entry & 0x000FFFFFC0000000ULL;
+        count = 512 * 512;
+    } else if (level == 2 && (entry & LargePage)) {
+        pa = entry & 0x000FFFFFFFE00000ULL;
+        count = 512;
+    } else if (level == 1) {
+        pa = entry & ADDR_MASK;
+        count = 1;
+    } else {
         return;
     }
 
-    if (level == 2 && (entry & LargePage)) {
-        PMM::FreeFrames(entry & 0x000FFFFFFFE00000ULL, 512);
+    // Inherited kernel/firmware identity map -> shared, do not reclaim.
+    if (isKernelInheritedIdentity(va, pa)) {
         return;
     }
 
-    if (level == 1) {
-        PMM::FreeFrame(entry & ADDR_MASK);
+    if (count == 1) {
+        PMM::FreeFrame(pa);
+    } else {
+        PMM::FreeFrames(pa, count);
     }
 }
 
-void freePrivateTable(PageTable* table, uint64_t kernelEntry, int level) {
+void freePrivateTable(PageTable* table, uint64_t kernelEntry, int level, uint64_t vaBase) {
     if (!table || level <= 0) {
         return;
     }
@@ -722,22 +779,31 @@ void freePrivateTable(PageTable* table, uint64_t kernelEntry, int level) {
             continue;
         }
 
+        // Ignore the private-table marker (bit 9) in the comparison: both
+        // initializeAddressSpace() and clone_table_if_needed() clear it on
+        // shallow-copied entries, so an unmodified inherited entry differs from
+        // the kernel baseline by exactly that bit. Masking it lets us recognise
+        // still-shared kernel subtrees (same frame) and skip them, instead of
+        // recursing into and freeing live kernel memory.
+        constexpr uint64_t kPrivateTable = 1ULL << 9;
         const uint64_t baseline = kernelTable ? kernelTable->entries[i] : 0;
-        if (entry == baseline) {
+        if ((entry & ~kPrivateTable) == (baseline & ~kPrivateTable)) {
             continue;
         }
 
         // Supervisor-only entries map shared kernel memory (e.g. the identity
         // map inherited into the user address space's low half). Never free the
         // frames or sub-tables they reference; they are not owned by this user
-        // address space. Without this guard a shallow-copied kernel PDPT/PD makes
-        // the baseline comparison miss and we would free live kernel memory.
+        // address space. Second line of defence behind the masked comparison
+        // above.
         if (!(entry & UserSuper)) {
             continue;
         }
 
+        const uint64_t entryVa = vaBase | (static_cast<uint64_t>(i) << (12 + 9 * (level - 1)));
+
         if (level == 1 || (entry & LargePage)) {
-            freeMappedFrames(entry, level);
+            freeMappedFrames(entry, level, entryVa);
             continue;
         }
 
@@ -747,7 +813,7 @@ void freePrivateTable(PageTable* table, uint64_t kernelEntry, int level) {
         }
 
         auto* child = reinterpret_cast<PageTable*>(entry & ADDR_MASK);
-        freePrivateTable(child, childKernelEntry, level - 1);
+        freePrivateTable(child, childKernelEntry, level - 1, entryVa);
         free_table(child);
     }
 }
@@ -764,13 +830,16 @@ void VMM::FreeAddressSpace(PageTable* pml4) {
             continue;
         }
 
+        constexpr uint64_t kPrivateTable = 1ULL << 9;
         const uint64_t baseline = kernelPml4 ? kernelPml4->entries[i] : 0;
-        if (entry == baseline) {
+        if ((entry & ~kPrivateTable) == (baseline & ~kPrivateTable)) {
             continue;
         }
 
+        const uint64_t vaBase = static_cast<uint64_t>(i) << 39;
+
         if (entry & LargePage) {
-            freeMappedFrames(entry, 4);
+            freeMappedFrames(entry, 4, vaBase);
             continue;
         }
 
@@ -781,7 +850,7 @@ void VMM::FreeAddressSpace(PageTable* pml4) {
         // initializeAddressSpace) is always private to this address space and is
         // freed below.
         auto* pdpt = reinterpret_cast<PageTable*>(entry & ADDR_MASK);
-        freePrivateTable(pdpt, baseline, 3);
+        freePrivateTable(pdpt, baseline, 3, vaBase);
         free_table(pdpt);
     }
 

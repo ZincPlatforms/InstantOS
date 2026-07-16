@@ -33,6 +33,7 @@ public:
         KindZero = 6,
         KindUrandom = 7,
         KindRandom = 8,
+        KindConsole = 9,
     };
 
     static constexpr uint64_t kPtsSlaveInodeBase = 0x1000;
@@ -40,6 +41,7 @@ public:
     VNode* getPtmxNode() { return ptmxNode; }
     VNode* getPtsDirNode() { return ptsDirNode; }
     VNode* getTtyNode() { return ttyNode; }
+    VNode* getConsoleNode() { return consoleNode; }
     VNode* getNullNode() { return nullNode; }
     VNode* getZeroNode() { return zeroNode; }
     VNode* getUrandomNode() { return urandomNode; }
@@ -56,6 +58,7 @@ private:
     VNode* ptmxNode;
     VNode* ptsDirNode;
     VNode* ttyNode;
+    VNode* consoleNode;
     VNode* nullNode;
     VNode* zeroNode;
     VNode* urandomNode;
@@ -64,6 +67,7 @@ private:
     VNodeOps rootOps;
     VNodeOps ptmxOps;
     VNodeOps ptsDirOps;
+    VNodeOps consoleOps; // /dev/console (write -> kernel console + serial, read EOF)
     VNodeOps nullOps;    // /dev/null (read EOF, write discard)
     VNodeOps zeroOps;    // /dev/zero (read zeros, write discard)
     VNodeOps randomOps;  // /dev/urandom, /dev/random (entropy read)

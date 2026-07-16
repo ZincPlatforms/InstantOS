@@ -478,7 +478,7 @@ void PMM::FreeFrame(uint64_t physAddr) {
 
     uint64_t frame = physAddr / PAGE_SIZE;
     if (frame == 0 || frame >= s_totalFrames) return;
-    if (!TestFrame(frame)) return;               // already free
+    if (!TestFrame(frame)) return;               // already free -> ignore double free
 
     if (s_refcount[frame] == 0xFFFF) return;     // pinned (saturated) – never free
     if (s_refcount[frame] > 1) {

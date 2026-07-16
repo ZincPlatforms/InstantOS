@@ -1798,6 +1798,17 @@ uint64_t Syscall::sys_dup(uint64_t handle) {
     Process* current = Scheduler::get().getCurrentProcess();
     if (!current) return syscall_error(SysErrInvalid);
 
+    // Bare stdio fds 0/1/2 map to encoded File handles in the reserved slots
+    // (mirrors sys_write/sys_seek/sys_ioctl/sys_fcntl). Without this, dup() of an
+    // inherited stdin/stdout/stderr duplicates the null handle 0 and fails with
+    // EPERM -- which breaks autoconf configure's `exec 7<&0` (dup fd 0).
+    if (handle <= 2) {
+        uint64_t encoded = HandleTable::encodeHandle(HandleType::File, static_cast<int>(handle));
+        if (current->getHandle(encoded) != nullptr) {
+            handle = encoded;
+        }
+    }
+
     return current->duplicateHandle(handle);
 }
 
@@ -1805,9 +1816,16 @@ uint64_t Syscall::sys_dup2(uint64_t oldHandle, uint64_t newHandle) {
     Process* current = Scheduler::get().getCurrentProcess();
     if (!current) return syscall_error(SysErrInvalid);
 
-    // A bare small integer target (0/1/2) refers to a reserved stdio slot.
-    // Translate it to the encoded File handle for that slot so duplicateTo()
-    // installs the source into the right place (mirrors sys_write/sys_ioctl).
+    // Bare small integer fds (0/1/2) refer to reserved stdio slots. Translate
+    // both the source (so dup2 of an inherited stdin/stdout/stderr reads the
+    // bound device, not the null handle) and the target (so duplicateTo installs
+    // into the right place). Mirrors sys_write/sys_ioctl.
+    if (oldHandle <= 2) {
+        uint64_t encodedOld = HandleTable::encodeHandle(HandleType::File, static_cast<int>(oldHandle));
+        if (current->getHandle(encodedOld) != nullptr) {
+            oldHandle = encodedOld;
+        }
+    }
     if (newHandle <= 2) {
         newHandle = HandleTable::encodeHandle(HandleType::File, static_cast<int>(newHandle));
     }

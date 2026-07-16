@@ -25,6 +25,15 @@ static constexpr uint64_t ADDR_MASK = 0x000FFFFFFFFFF000ULL;
 // table cloning in vmm.cpp) to avoid collisions.
 static constexpr uint64_t kCowPage = 1ULL << 10;
 
+// OS-available PTE bit (AVL, bit 11) marking a SHARED, kernel-owned leaf: an IPC
+// shared-memory frame or the device framebuffer BAR. Such frames are mapped into
+// possibly-many processes and are owned/freed by their manager (or are MMIO that
+// must NEVER return to the PMM). They must be shared writable across fork (never
+// copy-on-write'd) and MUST NOT be freed by address-space teardown -- otherwise
+// every process that maps one double-frees it, corrupting the PMM (frames handed
+// out while still in use -> reused -> arbitrary memory corruption).
+static constexpr uint64_t kSharedFrame = 1ULL << 11;
+
 struct PageTable {
     uint64_t entries[512];
 } __attribute__((aligned(4096)));

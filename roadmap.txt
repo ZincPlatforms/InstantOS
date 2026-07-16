@@ -1,0 +1,209 @@
+================================================================================
+ InstantOS ROADMAP: from today to a fully self-hosting GCC
+ (self-hosting = GCC, running ON InstantOS, rebuilds itself ON InstantOS,
+  proven by a 3-stage bootstrap with a bit-identical stage2 == stage3)
+================================================================================
+Date: 2026-07-03
+Verification doctrine (unchanged): every milestone gets an independent oracle
+(host-side harness, serial-marker in-OS run, fixpoint comparison), nothing is
+"done" until it runs headless in QEMU and the 177/177 suite still passes.
+
+--------------------------------------------------------------------------------
+PHASE 0 - BASELINE (where we are right now)
+--------------------------------------------------------------------------------
+Have and verified:
+  * Kernel: processes (fork/spawn/exec/wait), threads (FPUState crash fixed),
+    pipes (EOF-on-exit fixed via closeFilesOnExit), signals + sigaction,
+    PTY, sockets (loopback TCP/UDP), IPC queues/services, shmem, dup/dup2/fcntl,
+    RamFS /tmp, initrd /bin + /lib, /dev, AHCI + FAT32 root, ext4 driver.
+  * In-OS test suite: 177/177 (100%). ext4: 295 host checks + e2fsck + 10/10
+    in-OS selftest. ACPI: 55/55 host checks.
+  * Toolchain: TCC self-hosts in-OS (tcc2 == tcc3 byte-identical, 333,608 B).
+    bash (GNU bash on mlibc) fork/exec fully working (BASHFORK_RESULT_OK).
+    mlibc port, ld-instantos dynamic linker (incl. R_X86_64_COPY), tcc-sysroot
+    (crt0/crt1/Scrt1/crti/crtn, libc.so, libtcc1.a), clang cross-builds in WSL.
+Known, already-diagnosed gaps (from the wait/pipe investigations):
+  * sys_wait lost-wakeup race (edge-triggered wakeParentOf vs non-atomic block).
+  * Signal-killed children and sys_thread_exit never call wakeParentOf.
+  * No orphan reparenting (children of a dead parent are unreapable zombies).
+  * fork() deep-copies the address space (no COW) - correctness OK, speed bad.
+  * Buddy allocator large-block pressure (root cause of the old FPU bug).
+GCC is ~100x the demand TCC places on the OS. The phases below close the gap.
+
+--------------------------------------------------------------------------------
+PHASE 1 - KERNEL: BUILD-GRADE PROCESS + MEMORY + FS SEMANTICS        [size: L]
+--------------------------------------------------------------------------------
+Goal: `make -j2` driving thousands of short-lived processes for hours must be
+boringly reliable. This phase is pure hardening of what exists.
+
+1.1 Process lifecycle correctness
+    - Fix sys_wait lost-wakeup race: make findChild->setState(Blocked) atomic
+      w.r.t. child exit (re-check after commit, or level-triggered wake flag).
+    - wakeParentOf on ALL termination paths (signal kill, thread_exit, fault).
+    - Orphan reparenting to PID 1 (or auto-reap on parent death); no zombie
+      can ever become unreapable. Add SIGCHLD delivery (make uses it).
+    - waitpid(WNOHANG/WUNTRACED) semantics matching POSIX enough for make/bash.
+    - Stress oracle: 10,000-process fork/exec/wait churn + kill-storm test,
+      zero leaks (procinfo count returns to baseline), added to os-testsuite.
+
+1.2 exec/spawn completeness
+    - #! shebang execution in execve/spawn (configure runs thousands of
+      /bin/sh scripts as programs).
+    - Large argv/envp (ARG_MAX >= 128 KiB), deep paths (cwd > 256 B), PATH
+      search in exec or userspace shim.
+    - O_CLOEXEC + pipe2; verify fd inheritance matrix under fork/spawn/exec.
+
+1.3 Memory for a compiler workload
+    - mmap/munmap/mprotect: anonymous private, MAP_FIXED, grow-down guard
+      pages; hundreds of MB per process; mlibc malloc backed by mmap not brk.
+    - COW fork (or at least lazy copy): GCC's configure+make forks constantly;
+      deep-copy fork will otherwise dominate build time.
+    - Heap scalability: buddy allocator large-block exhaustion must be gone
+      (slab for small objects, or virtual kernel heap); soak test at 8-16 GiB
+      guest RAM with -m 8G.
+
+1.4 Filesystem for builds (the FAT root will not survive a GCC build)
+    - ext4 WRITE path hardened to build-grade: create/unlink/rename/truncate/
+      append, hardlinks, symlinks, permissions, mtime (make depends on mtime
+      ordering!), fsync; directory ops at 10k+ entries.
+    - Mount ext4 as the writable root (or /work) instead of FAT32.
+    - Oracle: untar + build tcc from source in-OS on ext4, then e2fsck the
+      image from the host: zero errors. Random-op fuzzer vs host ext4 oracle.
+Exit criteria: new stress sections added to os-testsuite, suite green,
+  tcc self-host ladder rebuilt entirely on the ext4 root.
+
+--------------------------------------------------------------------------------
+PHASE 2 - LIBC: MLIBC COMPLETION + libm                              [size: M-L]
+--------------------------------------------------------------------------------
+Goal: mlibc on InstantOS is complete enough to host binutils/make/busybox/GCC.
+    - Sysdeps audit vs GCC/binutils/make requirements: getcwd/chdir, stat
+      family, utime(nsat), readdir, realpath, getrusage/times, umask, uname,
+      isatty/ttyname, getpid/getppid, sig* completeness, setjmp/longjmp,
+      vfork (or fork alias), popen/system (needs sh + pipes: have).
+    - Locale/wchar/iconv minimal-but-correct stubs (GCC links against them).
+    - A real libm (port openlibm or musl's libm) - mpfr/gmp need it.
+    - Time: CLOCK_REALTIME/MONOTONIC stable; file mtimes consistent with it.
+    - Rebuild bash + tcc against updated mlibc; both regression ladders green.
+Exit criteria: "libc-torture" section in os-testsuite (target ~60 checks),
+  bash + tcc self-host unchanged, all green.
+
+--------------------------------------------------------------------------------
+PHASE 3 - BASE USERLAND: THE BUILD SHELL WORLD                       [size: M]
+--------------------------------------------------------------------------------
+Goal: an interactive-less POSIX build environment: sh, make, coreutils.
+    - Port GNU make 4.x (the single most important tool; needs Phase 1.1/1.2).
+    - Port busybox (one binary: sh fallback, coreutils, sed, awk, grep, tar,
+      gzip, find, diff, cmp, tr, sort, uname, install, ln, mkdir, rm, mv, cp,
+      touch, chmod, wc, basename/dirname...). Alternative: individual GNU
+      packages later; busybox first for speed.
+    - /etc/passwd-ish minimum, $HOME, /tmp semantics, /dev/null|zero|urandom.
+    - In-OS smoke: bash script drives `make` building a multi-file C project
+      with tcc; incremental rebuild honors mtime; `make -j2` correct.
+Exit criteria: "buildworld smoke": untar a tarball, patch, configure-lite,
+  make with tcc in-OS, all via busybox tools, serial-marker verified.
+
+--------------------------------------------------------------------------------
+PHASE 4 - BINUTILS PORT (as, ld, ar, ranlib, nm, strip)              [size: M]
+--------------------------------------------------------------------------------
+Goal: real GNU binutils for the x86_64-unknown-instantos triple.
+    - Add the triple to config.sub/config.guess, BFD (elf64-x86-64 vector),
+      gas, ld emulparams (dynamic linker path /lib/ld-instantos.so,
+      max-page-size 0x1000, hash-style sysv - match ld-instantos).
+    - Step A (cross): build on WSL, host=linux target=instantos. Oracle:
+      assemble+link hello against mlibc, runs in-OS; relink tcc-sysroot test
+      programs with GNU ld instead of ld.lld - loader accepts them.
+    - Step B (hosted): build host=instantos (needs Phases 2-3). Ship into
+      image; in-OS: as/ld/ar assemble+link hello; ar/ranlib round-trip
+      libtcc1.a; nm/strip sanity.
+Exit criteria: in-OS `as`+`ld` produce a running hello; ld-instantos loads
+  GNU-ld output for every relocation type in our test corpus.
+
+--------------------------------------------------------------------------------
+PHASE 5 - GCC CROSS-COMPILER (runs on Linux, TARGETS InstantOS)      [size: L]
+--------------------------------------------------------------------------------
+Goal: gcc/g++ cross toolchain producing InstantOS binaries; the OS port
+      upstream-shaped even if kept in-tree.
+    - GCC OS port: gcc/config.gcc entry + gcc/config/instantos.h (startfiles
+      crt0/crti/crtbegin..., -lc, dynamic linker path, PIE defaults),
+      libgcc/config.host, fixincludes bypass, --with-sysroot=mlibc sysroot.
+      (mlibc is used by several hobby OSes; crib the managarm GCC port shape.)
+    - Build: binutils-cross + gcc (C, C++) + libgcc + libstdc++-v3 vs mlibc.
+    - Oracles: hello.c + hello.cpp (iostream, exceptions, threads) run in-OS.
+      Rebuild the ENTIRE existing userland with GCC instead of clang:
+      managers, ld-instantos, libinstant, mlibc, bash, tcc - and the full
+      177/177 suite + tcc self-host + bashfork ladders all green on a
+      GCC-built world. (This is the big shake-out of the port.)
+Exit criteria: GCC-built userland is the new default; suite 177/177.
+
+--------------------------------------------------------------------------------
+PHASE 6 - GCC HOSTED ON INSTANTOS (built by cross, runs in-OS)       [size: L]
+--------------------------------------------------------------------------------
+Goal: /usr/bin/gcc exists ON InstantOS and compiles real programs.
+    - Port prerequisite libs to InstantOS (pure computation, low risk):
+      zlib, gmp, mpfr (needs libm from Phase 2), mpc, (libzstd optional-off).
+    - Cross-build binutils+gcc with host=x86_64-instantos target=same, using
+      Phase 5 toolchain; install tree (bin/, libexec/gcc/..., include, libs)
+      into the ext4 root image. Watch: cc1/cc1plus are ~200-300 MB RSS ->
+      Phase 1.3 must hold; exec of big binaries; /tmp spill files.
+    - In-OS oracles (serial ladder like SELFHOST_*):
+      GCCHOST_CC1_OK      gcc -v; gcc hello.c -o hello; ./hello
+      GCCHOST_CXX_OK      g++ hello.cpp (exceptions + std::thread) runs
+      GCCHOST_TCC_OK      gcc rebuilds tcc from source in-OS; tcc still
+                          self-hosts when built by in-OS gcc
+Exit criteria: all GCCHOST_* markers green, headless, on the ext4 root.
+
+--------------------------------------------------------------------------------
+PHASE 7 - FULL SELF-HOST: GCC REBUILDS GCC IN-OS (THE FINISH LINE)   [size: XL]
+--------------------------------------------------------------------------------
+Goal: on InstantOS, with no help from the host: configure + make bootstrap of
+      binutils and GCC, three stages, stage2 == stage3 bit-identical.
+    - In-OS build env: sources on ext4 (tar/gzip via busybox), 8-16 GiB RAM,
+      make -j matching SMP, hours-long soak stability (Phase 1 payoff).
+    - First rung: in-OS gcc rebuilds binutils; swap in, world still green.
+    - Main event: in-OS gcc builds gcc (stage1) -> stage1 builds stage2 ->
+      stage2 builds stage3; `make compare` (stage2 vs stage3 object
+      comparison) passes; also compare final cc1 binaries byte-wise (pin
+      -frandom-seed / timestamps for determinism, as we did for tcc2==tcc3).
+    - Then: the stage3 gcc rebuilds the whole OS userland AND the kernel
+      cross-image if desired; 177/177 + all ladders green on the result.
+    - Expect this phase to shake out dozens of latent kernel/libc bugs
+      (like thread_create and pipe-EOF were). Budget most of the calendar
+      time here; every bug gets a minimized regression test in os-testsuite.
+Exit criteria (DEFINITION OF DONE for the whole roadmap):
+      SELFHOST_GCC_STAGE2_EQ_STAGE3 printed from a headless in-OS run,
+      plus full regression suite green using the stage3 compiler's world.
+
+--------------------------------------------------------------------------------
+PHASE 8 (OPTIONAL, PURITY) - CLANG-FREE BOOTSTRAP LADDER             [size: M]
+--------------------------------------------------------------------------------
+Today's chain still originates in WSL clang. For bootstrap purity, replicate
+the classic ladder entirely in-OS: tcc (already self-hosted) -> gcc 4.7.4
+(last C-only-buildable GCC) -> gcc 10.x (C++11) -> modern GCC. Slow but
+removes the external-compiler trust root. Only worth doing after Phase 7.
+
+--------------------------------------------------------------------------------
+CROSS-CUTTING WORKSTREAMS (run alongside all phases)
+--------------------------------------------------------------------------------
+  * Performance: TCG makes a GCC bootstrap take days. Options, in order:
+    fix WHPX contention (dedicated boot without WSL running), try KVM under
+    nested/other box, or accept long soaks with checkpointed serial markers.
+    Kernel-side: COW fork, lazier TLB shootdowns, block cache for ext4.
+  * Tooling: extend build-*-iso.sh family; one `tools/gcc-selfhost/` harness
+    mirroring tools/tcc-selfhost (launcher + ladder script + serial oracle).
+  * Testing: os-testsuite grows a section per phase (target ~300 checks by
+    Phase 7); every regression found becomes a permanent check.
+  * Risk register (top 5):
+    1. ext4 write-path corruption under parallel builds  -> fuzz early (P1.4)
+    2. mlibc gaps discovered late by cc1/configure       -> audit early (P2)
+    3. fork performance without COW makes builds absurd  -> COW in P1.3
+    4. memory ceiling (cc1plus RSS) vs buddy allocator   -> P1.3 soak @ 8G
+    5. WSL/QEMU harness flakiness wasting iteration time -> keep Recover
+       helper + serial-marker resumability everywhere
+  * Ordering rationale: 1-2-3 are strictly sequential foundations; 4A can
+    start in parallel with 2-3 (host-side); 5 needs 4A; 6 needs 2,3,4B,5;
+    7 needs everything; 8 is optional dessert.
+
+Rough relative effort: P1=L, P2=M-L, P3=M, P4=M, P5=L, P6=L, P7=XL.
+The honest shape of the work: ~40% Phase 1-3 (making the OS build-grade),
+~25% Phase 5-6 (the port), ~35% Phase 7 (the long tail of real-world bugs).
+================================================================================
