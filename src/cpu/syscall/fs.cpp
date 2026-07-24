@@ -357,7 +357,7 @@ bool trailingSlashRejectsNonDirectory(const char* path, bool requiresDirectory) 
     return VFS::get().stat(path, &stats) == 0 && stats.type != FileType::Directory;
 }
 
-bool makeAbsolutePath(const char* path, char* out) {
+bool makeAbsolutePathImpl(const char* path, char* out) {
     if (!path || path[0] == '\0') {
         return false;
     }
@@ -423,7 +423,7 @@ PathCopyStatus copyUserPathDetailed(uint64_t path, char* pathname, bool* require
             if (requiresDirectory) {
                 *requiresDirectory = rawPathRequiresDirectory(raw);
             }
-            return makeAbsolutePath(raw, pathname) ? PathCopyStatus::Ok : PathCopyStatus::TooLong;
+            return makeAbsolutePathImpl(raw, pathname) ? PathCopyStatus::Ok : PathCopyStatus::TooLong;
         }
     }
     return PathCopyStatus::TooLong;
@@ -983,6 +983,10 @@ uint64_t openFifo(Process* current, VNode* fifoNode, uint64_t flags) {
     }
     return handle;
 }
+}
+
+bool Syscall::makeAbsolutePath(const char* path, char* out) {
+    return makeAbsolutePathImpl(path, out);
 }
 
 uint64_t Syscall::sys_write(uint64_t fileHandle, uint64_t buf, uint64_t count) {

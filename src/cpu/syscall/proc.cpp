@@ -283,6 +283,13 @@ uint64_t Syscall::sys_exec(uint64_t path, uint64_t argv, uint64_t envp) {
     if (!copyUserString(path, pathname, sizeof(pathname))) {
         return syscall_error(SysErrInvalid);
     }
+    if (pathname[0] == '\0') {
+        return syscall_error(SysErrNoEntry);
+    }
+    char absolutePath[256];
+    if (!makeAbsolutePath(pathname, absolutePath)) {
+        return syscall_error(SysErrNameTooLong);
+    }
 
     int argc = 0;
     const char** kernelArgv = nullptr;
@@ -303,7 +310,7 @@ uint64_t Syscall::sys_exec(uint64_t path, uint64_t argv, uint64_t envp) {
     PageTable* kernelPML4 = VMM::GetAddressSpace();
     VMM::SetAddressSpace(kernelPML4);
 
-    Process* newProc = ProcessExecutor::loadUserBinaryWithArgs(pathname, argc, kernelArgv, envc, kernelEnvp);
+    Process* newProc = ProcessExecutor::loadUserBinaryWithArgs(absolutePath, argc, kernelArgv, envc, kernelEnvp);
 
     freeStringVector(kernelArgv, argc);
     freeStringVector(kernelEnvp, envc);
@@ -328,7 +335,7 @@ uint64_t Syscall::sys_exec(uint64_t path, uint64_t argv, uint64_t envp) {
         return syscall_error(SysErrInvalid);
     }
     current->closeOnExecHandles();
-    current->setName(pathname);
+    current->setName(absolutePath);
 
     uint64_t kernelStack = current->getKernelStack() & ~0xFULL;
     kernelStack -= 8;
@@ -490,6 +497,13 @@ uint64_t Syscall::sys_spawn(uint64_t path, uint64_t argv, uint64_t envp) {
     if (!copyUserString(path, pathname, sizeof(pathname))) {
         return syscall_error(SysErrInvalid);
     }
+    if (pathname[0] == '\0') {
+        return syscall_error(SysErrNoEntry);
+    }
+    char absolutePath[256];
+    if (!makeAbsolutePath(pathname, absolutePath)) {
+        return syscall_error(SysErrNameTooLong);
+    }
 
     int argc = 0;
     const char** kernelArgv = nullptr;
@@ -516,7 +530,7 @@ uint64_t Syscall::sys_spawn(uint64_t path, uint64_t argv, uint64_t envp) {
     asm volatile("mov %%cr3, %0" : "=r"(callerCR3));
     VMM::SetAddressSpace(VMM::GetKernelAddressSpace());
 
-    Process* newProc = ProcessExecutor::loadUserBinaryWithArgs(pathname, argc, kernelArgv, envc, kernelEnvp);
+    Process* newProc = ProcessExecutor::loadUserBinaryWithArgs(absolutePath, argc, kernelArgv, envc, kernelEnvp);
 
     asm volatile("mov %0, %%cr3" : : "r"(callerCR3) : "memory");
 

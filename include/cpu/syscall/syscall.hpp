@@ -592,6 +592,7 @@ public:
     static bool copyUserString(uint64_t ptr, char* dest, size_t destSize);
     
 private:
+    static bool makeAbsolutePath(const char* path, char* out);
     uint64_t sys_exit(uint64_t code);
     uint64_t sys_write(uint64_t fileHandle, uint64_t buf, uint64_t count);
     uint64_t sys_serial_write(uint64_t buf, uint64_t count);
