@@ -38,3 +38,6 @@ PY
 emit "$DIR/square_plus_one.comp" comp kComputeSpirv
 emit "$DIR/triangle.vert"        vert kTriVertSpirv
 emit "$DIR/triangle.frag"        frag kTriFragSpirv
+emit "$DIR/quad.vert"            vert kQuadVertSpirv
+emit "$DIR/quad.frag"            frag kQuadFragSpirv
+emit "$DIR/quad_rect.vert"       vert kQuadRectVertSpirv

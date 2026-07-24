@@ -1938,6 +1938,203 @@ const uint32_t kTriFragSpirv[] = {
     0x00000009, 0x00000012, 0x000100fd, 0x00010038,
 };
 
+// Textured-quad shaders (tools/venus-shader/quad.vert / quad.frag). The vertex
+// shader emits a fullscreen quad (6 verts) via gl_VertexIndex with UVs; the
+// fragment shader samples the combined image sampler at binding 0.
+constexpr uint32_t kQuadVertSpirv[] = {
+    0x07230203, 0x00010000, 0x0008000b, 0x00000031, 0x00000000, 0x00020011,
+    0x00000001, 0x0006000b, 0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e,
+    0x00000000, 0x0003000e, 0x00000000, 0x00000001, 0x0008000f, 0x00000000,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00000018, 0x00000021, 0x0000002b,
+    0x00030003, 0x00000002, 0x000001c2, 0x00040005, 0x00000004, 0x6e69616d,
+    0x00000000, 0x00050005, 0x0000000c, 0x69736f70, 0x6e6f6974, 0x00000073,
+    0x00030005, 0x00000015, 0x00736f70, 0x00060005, 0x00000018, 0x565f6c67,
+    0x65747265, 0x646e4978, 0x00007865, 0x00060005, 0x0000001f, 0x505f6c67,
+    0x65567265, 0x78657472, 0x00000000, 0x00060006, 0x0000001f, 0x00000000,
+    0x505f6c67, 0x7469736f, 0x006e6f69, 0x00070006, 0x0000001f, 0x00000001,
+    0x505f6c67, 0x746e696f, 0x657a6953, 0x00000000, 0x00070006, 0x0000001f,
+    0x00000002, 0x435f6c67, 0x4470696c, 0x61747369, 0x0065636e, 0x00070006,
+    0x0000001f, 0x00000003, 0x435f6c67, 0x446c6c75, 0x61747369, 0x0065636e,
+    0x00030005, 0x00000021, 0x00000000, 0x00030005, 0x0000002b, 0x00565576,
+    0x00040047, 0x00000018, 0x0000000b, 0x0000002a, 0x00030047, 0x0000001f,
+    0x00000002, 0x00050048, 0x0000001f, 0x00000000, 0x0000000b, 0x00000000,
+    0x00050048, 0x0000001f, 0x00000001, 0x0000000b, 0x00000001, 0x00050048,
+    0x0000001f, 0x00000002, 0x0000000b, 0x00000003, 0x00050048, 0x0000001f,
+    0x00000003, 0x0000000b, 0x00000004, 0x00040047, 0x0000002b, 0x0000001e,
+    0x00000000, 0x00020013, 0x00000002, 0x00030021, 0x00000003, 0x00000002,
+    0x00030016, 0x00000006, 0x00000020, 0x00040017, 0x00000007, 0x00000006,
+    0x00000002, 0x00040015, 0x00000008, 0x00000020, 0x00000000, 0x0004002b,
+    0x00000008, 0x00000009, 0x00000006, 0x0004001c, 0x0000000a, 0x00000007,
+    0x00000009, 0x00040020, 0x0000000b, 0x00000007, 0x0000000a, 0x0004002b,
+    0x00000006, 0x0000000d, 0xbf800000, 0x0005002c, 0x00000007, 0x0000000e,
+    0x0000000d, 0x0000000d, 0x0004002b, 0x00000006, 0x0000000f, 0x3f800000,
+    0x0005002c, 0x00000007, 0x00000010, 0x0000000f, 0x0000000d, 0x0005002c,
+    0x00000007, 0x00000011, 0x0000000f, 0x0000000f, 0x0005002c, 0x00000007,
+    0x00000012, 0x0000000d, 0x0000000f, 0x0009002c, 0x0000000a, 0x00000013,
+    0x0000000e, 0x00000010, 0x00000011, 0x0000000e, 0x00000011, 0x00000012,
+    0x00040020, 0x00000014, 0x00000007, 0x00000007, 0x00040015, 0x00000016,
+    0x00000020, 0x00000001, 0x00040020, 0x00000017, 0x00000001, 0x00000016,
+    0x0004003b, 0x00000017, 0x00000018, 0x00000001, 0x00040017, 0x0000001c,
+    0x00000006, 0x00000004, 0x0004002b, 0x00000008, 0x0000001d, 0x00000001,
+    0x0004001c, 0x0000001e, 0x00000006, 0x0000001d, 0x0006001e, 0x0000001f,
+    0x0000001c, 0x00000006, 0x0000001e, 0x0000001e, 0x00040020, 0x00000020,
+    0x00000003, 0x0000001f, 0x0004003b, 0x00000020, 0x00000021, 0x00000003,
+    0x0004002b, 0x00000016, 0x00000022, 0x00000000, 0x0004002b, 0x00000006,
+    0x00000024, 0x00000000, 0x00040020, 0x00000028, 0x00000003, 0x0000001c,
+    0x00040020, 0x0000002a, 0x00000003, 0x00000007, 0x0004003b, 0x0000002a,
+    0x0000002b, 0x00000003, 0x0004002b, 0x00000006, 0x0000002d, 0x3f000000,
+    0x00050036, 0x00000002, 0x00000004, 0x00000000, 0x00000003, 0x000200f8,
+    0x00000005, 0x0004003b, 0x0000000b, 0x0000000c, 0x00000007, 0x0004003b,
+    0x00000014, 0x00000015, 0x00000007, 0x0003003e, 0x0000000c, 0x00000013,
+    0x0004003d, 0x00000016, 0x00000019, 0x00000018, 0x00050041, 0x00000014,
+    0x0000001a, 0x0000000c, 0x00000019, 0x0004003d, 0x00000007, 0x0000001b,
+    0x0000001a, 0x0003003e, 0x00000015, 0x0000001b, 0x0004003d, 0x00000007,
+    0x00000023, 0x00000015, 0x00050051, 0x00000006, 0x00000025, 0x00000023,
+    0x00000000, 0x00050051, 0x00000006, 0x00000026, 0x00000023, 0x00000001,
+    0x00070050, 0x0000001c, 0x00000027, 0x00000025, 0x00000026, 0x00000024,
+    0x0000000f, 0x00050041, 0x00000028, 0x00000029, 0x00000021, 0x00000022,
+    0x0003003e, 0x00000029, 0x00000027, 0x0004003d, 0x00000007, 0x0000002c,
+    0x00000015, 0x0005008e, 0x00000007, 0x0000002e, 0x0000002c, 0x0000002d,
+    0x00050050, 0x00000007, 0x0000002f, 0x0000002d, 0x0000002d, 0x00050081,
+    0x00000007, 0x00000030, 0x0000002e, 0x0000002f, 0x0003003e, 0x0000002b,
+    0x00000030, 0x000100fd, 0x00010038,
+};
+
+constexpr uint32_t kQuadFragSpirv[] = {
+    0x07230203, 0x00010000, 0x0008000b, 0x00000014, 0x00000000, 0x00020011,
+    0x00000001, 0x0006000b, 0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e,
+    0x00000000, 0x0003000e, 0x00000000, 0x00000001, 0x0007000f, 0x00000004,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00000009, 0x00000011, 0x00030010,
+    0x00000004, 0x00000007, 0x00030003, 0x00000002, 0x000001c2, 0x00040005,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00050005, 0x00000009, 0x4374756f,
+    0x726f6c6f, 0x00000000, 0x00050005, 0x0000000d, 0x78655475, 0x65727574,
+    0x00000000, 0x00030005, 0x00000011, 0x00565576, 0x00040047, 0x00000009,
+    0x0000001e, 0x00000000, 0x00040047, 0x0000000d, 0x00000021, 0x00000000,
+    0x00040047, 0x0000000d, 0x00000022, 0x00000000, 0x00040047, 0x00000011,
+    0x0000001e, 0x00000000, 0x00020013, 0x00000002, 0x00030021, 0x00000003,
+    0x00000002, 0x00030016, 0x00000006, 0x00000020, 0x00040017, 0x00000007,
+    0x00000006, 0x00000004, 0x00040020, 0x00000008, 0x00000003, 0x00000007,
+    0x0004003b, 0x00000008, 0x00000009, 0x00000003, 0x00090019, 0x0000000a,
+    0x00000006, 0x00000001, 0x00000000, 0x00000000, 0x00000000, 0x00000001,
+    0x00000000, 0x0003001b, 0x0000000b, 0x0000000a, 0x00040020, 0x0000000c,
+    0x00000000, 0x0000000b, 0x0004003b, 0x0000000c, 0x0000000d, 0x00000000,
+    0x00040017, 0x0000000f, 0x00000006, 0x00000002, 0x00040020, 0x00000010,
+    0x00000001, 0x0000000f, 0x0004003b, 0x00000010, 0x00000011, 0x00000001,
+    0x00050036, 0x00000002, 0x00000004, 0x00000000, 0x00000003, 0x000200f8,
+    0x00000005, 0x0004003d, 0x0000000b, 0x0000000e, 0x0000000d, 0x0004003d,
+    0x0000000f, 0x00000012, 0x00000011, 0x00050057, 0x00000007, 0x00000013,
+    0x0000000e, 0x00000012, 0x0003003e, 0x00000009, 0x00000013, 0x000100fd,
+    0x00010038,
+};
+
+// Rect-positioned textured-quad vertex shader (tools/venus-shader/quad_rect.vert):
+// reads an integer dst rect + target size from a storage buffer at binding 1 and
+// positions the quad; the GPU converts to NDC (no guest float math).
+constexpr uint32_t kQuadRectVertSpirv[] = {
+    0x07230203, 0x00010000, 0x0008000b, 0x00000055, 0x00000000, 0x00020011,
+    0x00000001, 0x0006000b, 0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e,
+    0x00000000, 0x0003000e, 0x00000000, 0x00000001, 0x0008000f, 0x00000000,
+    0x00000004, 0x6e69616d, 0x00000000, 0x00000018, 0x0000004b, 0x00000053,
+    0x00030003, 0x00000002, 0x000001c2, 0x00040005, 0x00000004, 0x6e69616d,
+    0x00000000, 0x00040005, 0x0000000c, 0x6e726f63, 0x00737265, 0x00030005,
+    0x00000015, 0x00000074, 0x00060005, 0x00000018, 0x565f6c67, 0x65747265,
+    0x646e4978, 0x00007865, 0x00030005, 0x0000001c, 0x00007870, 0x00050005,
+    0x0000001d, 0x64617551, 0x74636552, 0x00000000, 0x00050006, 0x0000001d,
+    0x00000000, 0x58747364, 0x00000000, 0x00050006, 0x0000001d, 0x00000001,
+    0x59747364, 0x00000000, 0x00050006, 0x0000001d, 0x00000002, 0x57747364,
+    0x00000000, 0x00050006, 0x0000001d, 0x00000003, 0x48747364, 0x00000000,
+    0x00050006, 0x0000001d, 0x00000004, 0x67726174, 0x00577465, 0x00050006,
+    0x0000001d, 0x00000005, 0x67726174, 0x00487465, 0x00030005, 0x0000001f,
+    0x00000072, 0x00030005, 0x00000036, 0x0063646e, 0x00060005, 0x00000049,
+    0x505f6c67, 0x65567265, 0x78657472, 0x00000000, 0x00060006, 0x00000049,
+    0x00000000, 0x505f6c67, 0x7469736f, 0x006e6f69, 0x00070006, 0x00000049,
+    0x00000001, 0x505f6c67, 0x746e696f, 0x657a6953, 0x00000000, 0x00070006,
+    0x00000049, 0x00000002, 0x435f6c67, 0x4470696c, 0x61747369, 0x0065636e,
+    0x00070006, 0x00000049, 0x00000003, 0x435f6c67, 0x446c6c75, 0x61747369,
+    0x0065636e, 0x00030005, 0x0000004b, 0x00000000, 0x00030005, 0x00000053,
+    0x00565576, 0x00040047, 0x00000018, 0x0000000b, 0x0000002a, 0x00030047,
+    0x0000001d, 0x00000003, 0x00040048, 0x0000001d, 0x00000000, 0x00000018,
+    0x00050048, 0x0000001d, 0x00000000, 0x00000023, 0x00000000, 0x00040048,
+    0x0000001d, 0x00000001, 0x00000018, 0x00050048, 0x0000001d, 0x00000001,
+    0x00000023, 0x00000004, 0x00040048, 0x0000001d, 0x00000002, 0x00000018,
+    0x00050048, 0x0000001d, 0x00000002, 0x00000023, 0x00000008, 0x00040048,
+    0x0000001d, 0x00000003, 0x00000018, 0x00050048, 0x0000001d, 0x00000003,
+    0x00000023, 0x0000000c, 0x00040048, 0x0000001d, 0x00000004, 0x00000018,
+    0x00050048, 0x0000001d, 0x00000004, 0x00000023, 0x00000010, 0x00040048,
+    0x0000001d, 0x00000005, 0x00000018, 0x00050048, 0x0000001d, 0x00000005,
+    0x00000023, 0x00000014, 0x00030047, 0x0000001f, 0x00000018, 0x00040047,
+    0x0000001f, 0x00000021, 0x00000001, 0x00040047, 0x0000001f, 0x00000022,
+    0x00000000, 0x00030047, 0x00000049, 0x00000002, 0x00050048, 0x00000049,
+    0x00000000, 0x0000000b, 0x00000000, 0x00050048, 0x00000049, 0x00000001,
+    0x0000000b, 0x00000001, 0x00050048, 0x00000049, 0x00000002, 0x0000000b,
+    0x00000003, 0x00050048, 0x00000049, 0x00000003, 0x0000000b, 0x00000004,
+    0x00040047, 0x00000053, 0x0000001e, 0x00000000, 0x00020013, 0x00000002,
+    0x00030021, 0x00000003, 0x00000002, 0x00030016, 0x00000006, 0x00000020,
+    0x00040017, 0x00000007, 0x00000006, 0x00000002, 0x00040015, 0x00000008,
+    0x00000020, 0x00000000, 0x0004002b, 0x00000008, 0x00000009, 0x00000006,
+    0x0004001c, 0x0000000a, 0x00000007, 0x00000009, 0x00040020, 0x0000000b,
+    0x00000007, 0x0000000a, 0x0004002b, 0x00000006, 0x0000000d, 0x00000000,
+    0x0005002c, 0x00000007, 0x0000000e, 0x0000000d, 0x0000000d, 0x0004002b,
+    0x00000006, 0x0000000f, 0x3f800000, 0x0005002c, 0x00000007, 0x00000010,
+    0x0000000f, 0x0000000d, 0x0005002c, 0x00000007, 0x00000011, 0x0000000f,
+    0x0000000f, 0x0005002c, 0x00000007, 0x00000012, 0x0000000d, 0x0000000f,
+    0x0009002c, 0x0000000a, 0x00000013, 0x0000000e, 0x00000010, 0x00000011,
+    0x0000000e, 0x00000011, 0x00000012, 0x00040020, 0x00000014, 0x00000007,
+    0x00000007, 0x00040015, 0x00000016, 0x00000020, 0x00000001, 0x00040020,
+    0x00000017, 0x00000001, 0x00000016, 0x0004003b, 0x00000017, 0x00000018,
+    0x00000001, 0x0008001e, 0x0000001d, 0x00000008, 0x00000008, 0x00000008,
+    0x00000008, 0x00000008, 0x00000008, 0x00040020, 0x0000001e, 0x00000002,
+    0x0000001d, 0x0004003b, 0x0000001e, 0x0000001f, 0x00000002, 0x0004002b,
+    0x00000016, 0x00000020, 0x00000000, 0x00040020, 0x00000021, 0x00000002,
+    0x00000008, 0x0004002b, 0x00000016, 0x00000025, 0x00000001, 0x0004002b,
+    0x00000016, 0x0000002b, 0x00000002, 0x0004002b, 0x00000016, 0x0000002f,
+    0x00000003, 0x0004002b, 0x00000016, 0x00000038, 0x00000004, 0x0004002b,
+    0x00000016, 0x0000003c, 0x00000005, 0x0004002b, 0x00000006, 0x00000042,
+    0x40000000, 0x00040017, 0x00000046, 0x00000006, 0x00000004, 0x0004002b,
+    0x00000008, 0x00000047, 0x00000001, 0x0004001c, 0x00000048, 0x00000006,
+    0x00000047, 0x0006001e, 0x00000049, 0x00000046, 0x00000006, 0x00000048,
+    0x00000048, 0x00040020, 0x0000004a, 0x00000003, 0x00000049, 0x0004003b,
+    0x0000004a, 0x0000004b, 0x00000003, 0x00040020, 0x00000050, 0x00000003,
+    0x00000046, 0x00040020, 0x00000052, 0x00000003, 0x00000007, 0x0004003b,
+    0x00000052, 0x00000053, 0x00000003, 0x00050036, 0x00000002, 0x00000004,
+    0x00000000, 0x00000003, 0x000200f8, 0x00000005, 0x0004003b, 0x0000000b,
+    0x0000000c, 0x00000007, 0x0004003b, 0x00000014, 0x00000015, 0x00000007,
+    0x0004003b, 0x00000014, 0x0000001c, 0x00000007, 0x0004003b, 0x00000014,
+    0x00000036, 0x00000007, 0x0003003e, 0x0000000c, 0x00000013, 0x0004003d,
+    0x00000016, 0x00000019, 0x00000018, 0x00050041, 0x00000014, 0x0000001a,
+    0x0000000c, 0x00000019, 0x0004003d, 0x00000007, 0x0000001b, 0x0000001a,
+    0x0003003e, 0x00000015, 0x0000001b, 0x00050041, 0x00000021, 0x00000022,
+    0x0000001f, 0x00000020, 0x0004003d, 0x00000008, 0x00000023, 0x00000022,
+    0x00040070, 0x00000006, 0x00000024, 0x00000023, 0x00050041, 0x00000021,
+    0x00000026, 0x0000001f, 0x00000025, 0x0004003d, 0x00000008, 0x00000027,
+    0x00000026, 0x00040070, 0x00000006, 0x00000028, 0x00000027, 0x00050050,
+    0x00000007, 0x00000029, 0x00000024, 0x00000028, 0x0004003d, 0x00000007,
+    0x0000002a, 0x00000015, 0x00050041, 0x00000021, 0x0000002c, 0x0000001f,
+    0x0000002b, 0x0004003d, 0x00000008, 0x0000002d, 0x0000002c, 0x00040070,
+    0x00000006, 0x0000002e, 0x0000002d, 0x00050041, 0x00000021, 0x00000030,
+    0x0000001f, 0x0000002f, 0x0004003d, 0x00000008, 0x00000031, 0x00000030,
+    0x00040070, 0x00000006, 0x00000032, 0x00000031, 0x00050050, 0x00000007,
+    0x00000033, 0x0000002e, 0x00000032, 0x00050085, 0x00000007, 0x00000034,
+    0x0000002a, 0x00000033, 0x00050081, 0x00000007, 0x00000035, 0x00000029,
+    0x00000034, 0x0003003e, 0x0000001c, 0x00000035, 0x0004003d, 0x00000007,
+    0x00000037, 0x0000001c, 0x00050041, 0x00000021, 0x00000039, 0x0000001f,
+    0x00000038, 0x0004003d, 0x00000008, 0x0000003a, 0x00000039, 0x00040070,
+    0x00000006, 0x0000003b, 0x0000003a, 0x00050041, 0x00000021, 0x0000003d,
+    0x0000001f, 0x0000003c, 0x0004003d, 0x00000008, 0x0000003e, 0x0000003d,
+    0x00040070, 0x00000006, 0x0000003f, 0x0000003e, 0x00050050, 0x00000007,
+    0x00000040, 0x0000003b, 0x0000003f, 0x00050088, 0x00000007, 0x00000041,
+    0x00000037, 0x00000040, 0x0005008e, 0x00000007, 0x00000043, 0x00000041,
+    0x00000042, 0x00050050, 0x00000007, 0x00000044, 0x0000000f, 0x0000000f,
+    0x00050083, 0x00000007, 0x00000045, 0x00000043, 0x00000044, 0x0003003e,
+    0x00000036, 0x00000045, 0x0004003d, 0x00000007, 0x0000004c, 0x00000036,
+    0x00050051, 0x00000006, 0x0000004d, 0x0000004c, 0x00000000, 0x00050051,
+    0x00000006, 0x0000004e, 0x0000004c, 0x00000001, 0x00070050, 0x00000046,
+    0x0000004f, 0x0000004d, 0x0000004e, 0x0000000d, 0x0000000f, 0x00050041,
+    0x00000050, 0x00000051, 0x0000004b, 0x00000020, 0x0003003e, 0x00000051,
+    0x0000004f, 0x0004003d, 0x00000007, 0x00000054, 0x00000015, 0x0003003e,
+    0x00000053, 0x00000054, 0x000100fd, 0x00010038,
+};
+
 // IEEE-754 single-precision bit pattern for a small non-negative integer,
 // computed with integer math only (the freestanding kernel has no soft-float).
 uint32_t uintToFloatBits(uint32_t v) {
@@ -2820,6 +3017,2497 @@ bool VulkanSession::renderTriangle(uint32_t width, uint32_t height, uint32_t* ou
     return copyWords > 0;
 }
 
+bool VulkanSession::renderTexturedQuad(uint32_t width, uint32_t height,
+                                       const uint32_t* srcBGRA, uint32_t srcW, uint32_t srcH,
+                                       uint32_t dstX, uint32_t dstY, uint32_t dstW, uint32_t dstH,
+                                       uint32_t* outBGRA, uint32_t outCapWords) {
+    if (!ringReady_ || device_ == 0 || physDevCount_ == 0 || width == 0 || height == 0 ||
+        srcBGRA == nullptr || srcW == 0 || srcH == 0 || dstW == 0 || dstH == 0) {
+        return false;
+    }
+    auto createShader = [&](const uint32_t* spirv, uint32_t wordCount, uint64_t* outHandle) -> bool {
+        const uint64_t handle = allocHandleId();
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateShaderModule);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeSizeT(static_cast<uint64_t>(wordCount) * 4);
+            e.writeArraySize(wordCount);
+            for (uint32_t i = 0; i < wordCount; ++i) {
+                e.writeU32(spirv[i]);
+            }
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(handle);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateShaderModule) != 0) {
+            return false;
+        }
+        *outHandle = handle;
+        return true;
+    };
+
+    // Create a BGRA 2D image with the given usage and bind device memory to it.
+    auto createBoundImage = [&](uint32_t w, uint32_t h, uint32_t usage, uint64_t* outImage,
+                                uint64_t* outMemory, uint32_t* outMemRes) -> bool {
+        const uint64_t image = allocHandleId();
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkCreateImage);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            if (e.writeSimplePointer(true)) {
+                e.writeStructureType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO);
+                e.writeSimplePointer(false);
+                e.writeFlags(0);
+                e.writeU32(VK_IMAGE_TYPE_2D);
+                e.writeU32(VK_FORMAT_B8G8R8A8_UNORM);
+                e.writeU32(w);
+                e.writeU32(h);
+                e.writeU32(1);
+                e.writeU32(1);
+                e.writeU32(1);
+                e.writeU32(VK_SAMPLE_COUNT_1_BIT);
+                e.writeU32(VK_IMAGE_TILING_OPTIMAL);
+                e.writeFlags(usage);
+                e.writeU32(VK_SHARING_MODE_EXCLUSIVE);
+                e.writeU32(0);
+                e.writeArraySize(0);
+                e.writeU32(VK_IMAGE_LAYOUT_UNDEFINED);
+            }
+            e.writeSimplePointer(false);
+            if (e.writeSimplePointer(true)) {
+                e.writeHandle(image);
+            }
+            if (e.overflowed() ||
+                decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateImage) != 0) {
+                return false;
+            }
+        }
+        uint64_t memSize = static_cast<uint64_t>(w) * h * 4;
+        uint32_t memBits = 0xFFFFFFFFu;
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkGetImageMemoryRequirements);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            e.writeHandle(image);
+            e.writeSimplePointer(true);
+            const uint8_t* reply = nullptr;
+            if (e.overflowed() ||
+                !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+                return false;
+            }
+            CsDecoder dec(reply, replySize_);
+            if (dec.readU32() != VK_COMMAND_TYPE_vkGetImageMemoryRequirements ||
+                dec.readArraySize() == 0) {
+                return false;
+            }
+            memSize = dec.readU64();
+            dec.readU64();  // alignment
+            memBits = dec.readU32();
+            if (dec.fatal()) {
+                return false;
+            }
+        }
+        uint32_t typeIndex = 0;
+        if (!selectHostVisibleMemoryType(physDevs_[0], memBits, &typeIndex)) {
+            for (uint32_t i = 0; i < 32; ++i) {
+                if (memBits & (1u << i)) { typeIndex = i; break; }
+            }
+        }
+        void* ptr = nullptr;
+        if (!allocateMappableMemory(memSize, typeIndex, outMemory, outMemRes, &ptr)) {
+            return false;
+        }
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkBindImageMemory);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            e.writeHandle(image);
+            e.writeHandle(*outMemory);
+            e.writeU64(0);
+            if (e.overflowed() ||
+                decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBindImageMemory) != 0) {
+                return false;
+            }
+        }
+        *outImage = image;
+        return true;
+    };
+
+    auto createColorView = [&](uint64_t image, uint64_t* outView) -> bool {
+        const uint64_t view = allocHandleId();
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateImageView);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeHandle(image);
+            e.writeU32(VK_IMAGE_VIEW_TYPE_2D);
+            e.writeU32(VK_FORMAT_B8G8R8A8_UNORM);
+            e.writeU32(VK_COMPONENT_SWIZZLE_IDENTITY);
+            e.writeU32(VK_COMPONENT_SWIZZLE_IDENTITY);
+            e.writeU32(VK_COMPONENT_SWIZZLE_IDENTITY);
+            e.writeU32(VK_COMPONENT_SWIZZLE_IDENTITY);
+            e.writeFlags(VK_IMAGE_ASPECT_COLOR_BIT);
+            e.writeU32(0);
+            e.writeU32(1);
+            e.writeU32(0);
+            e.writeU32(1);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(view);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateImageView) != 0) {
+            return false;
+        }
+        *outView = view;
+        return true;
+    };
+
+    uint64_t vert = 0, frag = 0;
+    if (!createShader(kQuadRectVertSpirv, sizeof(kQuadRectVertSpirv) / 4, &vert) ||
+        !createShader(kQuadFragSpirv, sizeof(kQuadFragSpirv) / 4, &frag)) {
+        return false;
+    }
+
+    // Offscreen render target (color attachment + transfer src) and its view.
+    uint64_t rtImage = 0, rtMemory = 0;
+    uint32_t rtMemRes = 0;
+    if (!createBoundImage(width, height,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                          &rtImage, &rtMemory, &rtMemRes)) {
+        return false;
+    }
+    uint64_t rtView = 0;
+    if (!createColorView(rtImage, &rtView)) {
+        return false;
+    }
+
+    // Sampled texture: LINEAR tiling + host-visible PREINITIALIZED memory that
+    // the guest fills directly. This avoids a staging buffer and the
+    // vkCmdCopyBufferToImage upload command (one fewer inferred opcode + fewer
+    // barriers); the guest writes texels straight into the mapped image memory.
+    const uint64_t texImage = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateImage);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(VK_IMAGE_TYPE_2D);
+            e.writeU32(VK_FORMAT_B8G8R8A8_UNORM);
+            e.writeU32(srcW);
+            e.writeU32(srcH);
+            e.writeU32(1);
+            e.writeU32(1);
+            e.writeU32(1);
+            e.writeU32(VK_SAMPLE_COUNT_1_BIT);
+            e.writeU32(VK_IMAGE_TILING_LINEAR);
+            e.writeFlags(VK_IMAGE_USAGE_SAMPLED_BIT);
+            e.writeU32(VK_SHARING_MODE_EXCLUSIVE);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            e.writeU32(VK_IMAGE_LAYOUT_PREINITIALIZED);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(texImage);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateImage) != 0) {
+            return false;
+        }
+    }
+    uint64_t texMemSize = static_cast<uint64_t>(srcW) * srcH * 4;
+    uint32_t texMemBits = 0xFFFFFFFFu;
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkGetImageMemoryRequirements);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(texImage);
+        e.writeSimplePointer(true);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkGetImageMemoryRequirements ||
+            dec.readArraySize() == 0) {
+            return false;
+        }
+        texMemSize = dec.readU64();
+        dec.readU64();
+        texMemBits = dec.readU32();
+        if (dec.fatal()) {
+            return false;
+        }
+    }
+    uint32_t texTypeIndex = 0;
+    if (!selectHostVisibleMemoryType(physDevs_[0], texMemBits, &texTypeIndex)) {
+        return false;
+    }
+    uint64_t texMemory = 0;
+    uint32_t texMemRes = 0;
+    void* texPtr = nullptr;
+    if (!allocateMappableMemory(texMemSize, texTypeIndex, &texMemory, &texMemRes, &texPtr)) {
+        return false;
+    }
+    {
+        // Fill mapped texture memory. Assumes a tightly-packed row pitch
+        // (srcW*4); holds for the BGRA test sizes on lavapipe.
+        uint32_t* w = static_cast<uint32_t*>(texPtr);
+        const uint32_t count = srcW * srcH;
+        for (uint32_t i = 0; i < count; ++i) {
+            w[i] = srcBGRA[i];
+        }
+        __asm__ __volatile__("mfence" ::: "memory");
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkBindImageMemory);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(texImage);
+        e.writeHandle(texMemory);
+        e.writeU64(0);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBindImageMemory) != 0) {
+            return false;
+        }
+    }
+    uint64_t texView = 0;
+    if (!createColorView(texImage, &texView)) {
+        return false;
+    }
+
+    // Storage buffer with the destination rect + target size (ints) that the
+    // vertex shader reads (binding 1) to place the quad; the GPU converts to NDC.
+    const uint64_t rectBuf = allocHandleId();
+    const uint64_t rectBytes = 6 * sizeof(uint32_t);
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateBuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU64(rectBytes);
+            e.writeFlags(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+            e.writeU32(VK_SHARING_MODE_EXCLUSIVE);
+            e.writeU32(0);
+            e.writeArraySize(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(rectBuf);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateBuffer) != 0) {
+            return false;
+        }
+    }
+    uint64_t rectReqSize = rectBytes;
+    uint32_t rectBits = 0xFFFFFFFFu;
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkGetBufferMemoryRequirements);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(rectBuf);
+        e.writeSimplePointer(true);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkGetBufferMemoryRequirements ||
+            dec.readArraySize() == 0) {
+            return false;
+        }
+        rectReqSize = dec.readU64();
+        dec.readU64();
+        rectBits = dec.readU32();
+        if (dec.fatal()) {
+            return false;
+        }
+    }
+    uint32_t rectTypeIndex = 0;
+    if (!selectHostVisibleMemoryType(physDevs_[0], rectBits, &rectTypeIndex)) {
+        return false;
+    }
+    uint64_t rectMemory = 0;
+    uint32_t rectMemRes = 0;
+    void* rectPtr = nullptr;
+    if (!allocateMappableMemory(rectReqSize, rectTypeIndex, &rectMemory, &rectMemRes, &rectPtr)) {
+        return false;
+    }
+    {
+        uint32_t* rw = static_cast<uint32_t*>(rectPtr);
+        rw[0] = dstX;
+        rw[1] = dstY;
+        rw[2] = dstW;
+        rw[3] = dstH;
+        rw[4] = width;
+        rw[5] = height;
+        __asm__ __volatile__("mfence" ::: "memory");
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkBindBufferMemory);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(rectBuf);
+        e.writeHandle(rectMemory);
+        e.writeU64(0);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBindBufferMemory) != 0) {
+            return false;
+        }
+    }
+
+    // Sampler.
+    const uint64_t sampler = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateSampler);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {  // VkSamplerCreateInfo
+            e.writeStructureType(VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(VK_FILTER_LINEAR);   // magFilter
+            e.writeU32(VK_FILTER_LINEAR);   // minFilter
+            e.writeU32(VK_SAMPLER_MIPMAP_MODE_NEAREST);
+            e.writeU32(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);  // addressModeU
+            e.writeU32(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);  // addressModeV
+            e.writeU32(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);  // addressModeW
+            e.writeFloatBits(kFloatZeroBits);  // mipLodBias
+            e.writeU32(0);                     // anisotropyEnable
+            e.writeFloatBits(kFloatOneBits);   // maxAnisotropy
+            e.writeU32(0);                     // compareEnable
+            e.writeU32(VK_COMPARE_OP_ALWAYS);  // compareOp
+            e.writeFloatBits(kFloatZeroBits);  // minLod
+            e.writeFloatBits(kFloatZeroBits);  // maxLod
+            e.writeU32(VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK);  // borderColor
+            e.writeU32(0);                     // unnormalizedCoordinates
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(sampler);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateSampler) != 0) {
+            return false;
+        }
+    }
+
+    // Descriptor set layout: binding 0 = combined image sampler, fragment stage.
+    const uint64_t setLayout = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateDescriptorSetLayout);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(2);
+            e.writeArraySize(2);
+            e.writeU32(0);                                          // binding 0: texture
+            e.writeU32(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            e.writeU32(1);
+            e.writeFlags(VK_SHADER_STAGE_FRAGMENT_BIT);
+            e.writeArraySize(0);                                    // pImmutableSamplers
+            e.writeU32(1);                                          // binding 1: rect
+            e.writeU32(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            e.writeU32(1);
+            e.writeFlags(VK_SHADER_STAGE_VERTEX_BIT);
+            e.writeArraySize(0);                                    // pImmutableSamplers
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(setLayout);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateDescriptorSetLayout) != 0) {
+            return false;
+        }
+    }
+
+    // Descriptor pool + set.
+    const uint64_t descPool = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateDescriptorPool);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(1);                 // maxSets
+            e.writeU32(2);                 // poolSizeCount
+            e.writeArraySize(2);           // pPoolSizes
+            e.writeU32(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            e.writeU32(1);
+            e.writeU32(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            e.writeU32(1);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(descPool);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateDescriptorPool) != 0) {
+            return false;
+        }
+    }
+    const uint64_t descSet = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkAllocateDescriptorSets);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeHandle(descPool);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeHandle(setLayout);
+        }
+        e.writeArraySize(1);
+        e.writeHandle(descSet);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkAllocateDescriptorSets) {
+            return false;
+        }
+        const int32_t ret = static_cast<int32_t>(dec.readU32());
+        if (dec.readArraySize() != 0) {
+            dec.readHandle();
+        }
+        if (dec.fatal() || ret != 0) {
+            return false;
+        }
+    }
+    // Bind sampler + texture view into the set (vkUpdateDescriptorSets, no reply).
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkUpdateDescriptorSets);
+        e.writeFlags(0);
+        e.writeHandle(device_);
+        e.writeU32(2);                 // descriptorWriteCount
+        e.writeArraySize(2);           // pDescriptorWrites
+        // write 0: combined image sampler at binding 0
+        e.writeStructureType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET);
+        e.writeSimplePointer(false);
+        e.writeHandle(descSet);
+        e.writeU32(0);                 // dstBinding
+        e.writeU32(0);                 // dstArrayElement
+        e.writeU32(1);                 // descriptorCount
+        e.writeU32(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        e.writeArraySize(1);           // pImageInfo
+        e.writeHandle(sampler);
+        e.writeHandle(texView);
+        e.writeU32(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        e.writeArraySize(0);           // pBufferInfo
+        e.writeArraySize(0);           // pTexelBufferView
+        // write 1: storage buffer (rect) at binding 1
+        e.writeStructureType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET);
+        e.writeSimplePointer(false);
+        e.writeHandle(descSet);
+        e.writeU32(1);                 // dstBinding
+        e.writeU32(0);                 // dstArrayElement
+        e.writeU32(1);                 // descriptorCount
+        e.writeU32(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        e.writeArraySize(0);           // pImageInfo
+        e.writeArraySize(1);           // pBufferInfo
+        e.writeHandle(rectBuf);
+        e.writeU64(0);                 // offset
+        e.writeU64(VK_WHOLE_SIZE);     // range
+        e.writeArraySize(0);           // pTexelBufferView
+        e.writeU32(0);                 // descriptorCopyCount
+        e.writeArraySize(0);           // pDescriptorCopies
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+
+    // Pipeline layout (one set layout).
+    const uint64_t pipelineLayout = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreatePipelineLayout);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(1);                 // setLayoutCount
+            e.writeArraySize(1);
+            e.writeHandle(setLayout);
+            e.writeU32(0);                 // pushConstantRangeCount
+            e.writeArraySize(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(pipelineLayout);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreatePipelineLayout) != 0) {
+            return false;
+        }
+    }
+
+    // Render pass (BGRA color, clear -> store, final layout TRANSFER_SRC).
+    const uint64_t renderPass = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateRenderPass);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeFlags(0);
+            e.writeU32(VK_FORMAT_B8G8R8A8_UNORM);
+            e.writeU32(VK_SAMPLE_COUNT_1_BIT);
+            e.writeU32(VK_ATTACHMENT_LOAD_OP_CLEAR);
+            e.writeU32(VK_ATTACHMENT_STORE_OP_STORE);
+            e.writeU32(VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+            e.writeU32(VK_ATTACHMENT_STORE_OP_DONT_CARE);
+            e.writeU32(VK_IMAGE_LAYOUT_UNDEFINED);
+            e.writeU32(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeFlags(0);
+            e.writeU32(VK_PIPELINE_BIND_POINT_GRAPHICS);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeU32(0);
+            e.writeU32(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            e.writeArraySize(0);
+            e.writeSimplePointer(false);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            e.writeU32(0);
+            e.writeArraySize(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(renderPass);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateRenderPass) != 0) {
+            return false;
+        }
+    }
+
+    // Framebuffer over the render-target view.
+    const uint64_t framebuffer = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateFramebuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeHandle(renderPass);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeHandle(rtView);
+            e.writeU32(width);
+            e.writeU32(height);
+            e.writeU32(1);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(framebuffer);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateFramebuffer) != 0) {
+            return false;
+        }
+    }
+
+    // Graphics pipeline (quad shaders, textured layout).
+    const uint64_t pipeline = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateGraphicsPipelines);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(0);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeStructureType(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO);
+        e.writeSimplePointer(false);
+        e.writeFlags(0);
+        e.writeU32(2);
+        e.writeArraySize(2);
+        e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
+        e.writeSimplePointer(false);
+        e.writeFlags(0);
+        e.writeU32(VK_SHADER_STAGE_VERTEX_BIT);
+        e.writeHandle(vert);
+        e.writeString("main");
+        e.writeSimplePointer(false);
+        e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
+        e.writeSimplePointer(false);
+        e.writeFlags(0);
+        e.writeU32(VK_SHADER_STAGE_FRAGMENT_BIT);
+        e.writeHandle(frag);
+        e.writeString("main");
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            e.writeU32(0);
+            e.writeArraySize(0);
+        }
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+            e.writeU32(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(uintToFloatBits(width));
+            e.writeFloatBits(uintToFloatBits(height));
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatOneBits);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeU32(width);
+            e.writeU32(height);
+        }
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeU32(VK_POLYGON_MODE_FILL);
+            e.writeFlags(VK_CULL_MODE_NONE);
+            e.writeU32(VK_FRONT_FACE_COUNTER_CLOCKWISE);
+            e.writeU32(0);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatOneBits);
+        }
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(VK_SAMPLE_COUNT_1_BIT);
+            e.writeU32(0);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeArraySize(0);
+            e.writeU32(0);
+            e.writeU32(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(0);
+            e.writeU32(VK_LOGIC_OP_CLEAR);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeU32(0);
+            e.writeU32(VK_BLEND_FACTOR_ONE);
+            e.writeU32(VK_BLEND_FACTOR_ZERO);
+            e.writeU32(VK_BLEND_OP_ADD);
+            e.writeU32(VK_BLEND_FACTOR_ONE);
+            e.writeU32(VK_BLEND_FACTOR_ZERO);
+            e.writeU32(VK_BLEND_OP_ADD);
+            e.writeFlags(VK_COLOR_COMPONENT_RGBA);
+            e.writeArraySize(4);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+        }
+        e.writeSimplePointer(false);
+        e.writeHandle(pipelineLayout);
+        e.writeHandle(renderPass);
+        e.writeU32(0);
+        e.writeHandle(0);
+        e.writeU32(0xFFFFFFFFu);
+        e.writeSimplePointer(false);
+        e.writeArraySize(1);
+        e.writeHandle(pipeline);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkCreateGraphicsPipelines) {
+            return false;
+        }
+        const int32_t ret = static_cast<int32_t>(dec.readU32());
+        if (dec.readArraySize() != 0) {
+            dec.readHandle();
+        }
+        if (dec.fatal() || ret != 0) {
+            return false;
+        }
+    }
+
+    // Linear readback buffer (host visible), sized width*height*4.
+    const uint64_t rbBytes = static_cast<uint64_t>(width) * height * 4;
+    const uint64_t rbuf = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateBuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU64(rbBytes);
+            e.writeFlags(VK_IMAGE_USAGE_TRANSFER_DST_BIT);  // VK_BUFFER_USAGE_TRANSFER_DST_BIT (0x2)
+            e.writeU32(VK_SHARING_MODE_EXCLUSIVE);
+            e.writeU32(0);
+            e.writeArraySize(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(rbuf);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateBuffer) != 0) {
+            return false;
+        }
+    }
+    uint64_t rbReqSize = rbBytes;
+    uint32_t rbBits = 0xFFFFFFFFu;
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkGetBufferMemoryRequirements);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(rbuf);
+        e.writeSimplePointer(true);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkGetBufferMemoryRequirements ||
+            dec.readArraySize() == 0) {
+            return false;
+        }
+        rbReqSize = dec.readU64();
+        dec.readU64();
+        rbBits = dec.readU32();
+        if (dec.fatal()) {
+            return false;
+        }
+    }
+    uint32_t rbTypeIndex = 0;
+    if (!selectHostVisibleMemoryType(physDevs_[0], rbBits, &rbTypeIndex)) {
+        return false;
+    }
+    uint64_t rbMemory = 0;
+    uint32_t rbMemRes = 0;
+    void* rbPtr = nullptr;
+    if (!allocateMappableMemory(rbReqSize, rbTypeIndex, &rbMemory, &rbMemRes, &rbPtr)) {
+        return false;
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkBindBufferMemory);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(rbuf);
+        e.writeHandle(rbMemory);
+        e.writeU64(0);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBindBufferMemory) != 0) {
+            return false;
+        }
+    }
+
+    // Queue + command pool + command buffer.
+    const uint64_t queue = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkGetDeviceQueue2);
+        e.writeFlags(0);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2);
+            if (e.writeSimplePointer(true)) {
+                e.writeStructureType(VK_STRUCTURE_TYPE_DEVICE_QUEUE_TIMELINE_INFO_MESA);
+                e.writeSimplePointer(false);
+                e.writeU32(1);
+            }
+            e.writeFlags(0);
+            e.writeU32(0);
+            e.writeU32(0);
+        }
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(queue);
+        }
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    const uint64_t cmdPool = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateCommandPool);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(cmdPool);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateCommandPool) != 0) {
+            return false;
+        }
+    }
+    const uint64_t cmdBuf = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkAllocateCommandBuffers);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeHandle(cmdPool);
+            e.writeU32(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+            e.writeU32(1);
+        }
+        e.writeArraySize(1);
+        e.writeHandle(cmdBuf);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkAllocateCommandBuffers) {
+            return false;
+        }
+        const int32_t ret = static_cast<int32_t>(dec.readU32());
+        if (dec.readArraySize() != 0) {
+            dec.readHandle();
+        }
+        if (dec.fatal() || ret != 0) {
+            return false;
+        }
+    }
+
+    // An image memory barrier on the texture image.
+    auto texBarrier = [&](uint32_t srcStage, uint32_t dstStage, uint32_t srcAccess,
+                          uint32_t dstAccess, uint32_t oldLayout, uint32_t newLayout) -> bool {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdPipelineBarrier);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        e.writeFlags(srcStage);
+        e.writeFlags(dstStage);
+        e.writeFlags(0);               // dependencyFlags
+        e.writeU32(0);
+        e.writeArraySize(0);           // memory barriers
+        e.writeU32(0);
+        e.writeArraySize(0);           // buffer memory barriers
+        e.writeU32(1);
+        e.writeArraySize(1);           // image memory barriers
+        e.writeStructureType(VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER);
+        e.writeSimplePointer(false);
+        e.writeFlags(srcAccess);
+        e.writeFlags(dstAccess);
+        e.writeU32(oldLayout);
+        e.writeU32(newLayout);
+        e.writeU32(VK_QUEUE_FAMILY_IGNORED);
+        e.writeU32(VK_QUEUE_FAMILY_IGNORED);
+        e.writeHandle(texImage);
+        e.writeFlags(VK_IMAGE_ASPECT_COLOR_BIT);
+        e.writeU32(0);
+        e.writeU32(1);
+        e.writeU32(0);
+        e.writeU32(1);
+        return !e.overflowed() && ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr);
+    };
+
+    // Record: begin, transition the texture, render the
+    // textured quad, copy the result to the readback buffer, end.
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkBeginCommandBuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(cmdBuf);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+            e.writeSimplePointer(false);
+        }
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBeginCommandBuffer) != 0) {
+            return false;
+        }
+    }
+    // Transition the (host-filled, PREINITIALIZED) LINEAR texture to
+    // SHADER_READ_ONLY so the fragment shader can sample it.
+    if (!texBarrier(VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                    VK_IMAGE_LAYOUT_PREINITIALIZED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)) {
+        return false;
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdBeginRenderPass);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO);
+            e.writeSimplePointer(false);
+            e.writeHandle(renderPass);
+            e.writeHandle(framebuffer);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeU32(width);
+            e.writeU32(height);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeArraySize(4);
+            e.writeFloatBits(kClearR_006);
+            e.writeFloatBits(kClearG_008);
+            e.writeFloatBits(kClearB_016);
+            e.writeFloatBits(kFloatOneBits);
+        }
+        e.writeU32(VK_SUBPASS_CONTENTS_INLINE);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdBindPipeline);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        e.writeU32(VK_PIPELINE_BIND_POINT_GRAPHICS);
+        e.writeHandle(pipeline);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdBindDescriptorSets);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        e.writeU32(VK_PIPELINE_BIND_POINT_GRAPHICS);
+        e.writeHandle(pipelineLayout);
+        e.writeU32(0);                 // firstSet
+        e.writeU32(1);                 // descriptorSetCount
+        e.writeArraySize(1);
+        e.writeHandle(descSet);
+        e.writeU32(0);                 // dynamicOffsetCount
+        e.writeArraySize(0);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdDraw);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        e.writeU32(6);  // vertexCount (two triangles)
+        e.writeU32(1);  // instanceCount
+        e.writeU32(0);  // firstVertex
+        e.writeU32(0);  // firstInstance
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdEndRenderPass);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdCopyImageToBuffer);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        e.writeHandle(rtImage);
+        e.writeU32(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        e.writeHandle(rbuf);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeU64(0);
+        e.writeU32(0);
+        e.writeU32(0);
+        e.writeFlags(VK_IMAGE_ASPECT_COLOR_BIT);
+        e.writeU32(0);
+        e.writeU32(0);
+        e.writeU32(1);
+        e.writeU32(0);
+        e.writeU32(0);
+        e.writeU32(0);
+        e.writeU32(width);
+        e.writeU32(height);
+        e.writeU32(1);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkEndCommandBuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(cmdBuf);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkEndCommandBuffer) != 0) {
+            return false;
+        }
+    }
+
+    // Submit with a fence + wait.
+    const uint64_t fence = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateFence);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_FENCE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(fence);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateFence) != 0) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkQueueSubmit);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(queue);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeStructureType(VK_STRUCTURE_TYPE_SUBMIT_INFO);
+        e.writeSimplePointer(false);
+        e.writeU32(0);
+        e.writeArraySize(0);
+        e.writeArraySize(0);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeHandle(cmdBuf);
+        e.writeU32(0);
+        e.writeArraySize(0);
+        e.writeHandle(fence);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkQueueSubmit) != 0) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkWaitForFences);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeHandle(fence);
+        e.writeU32(1);
+        e.writeU64(~0ULL);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkWaitForFences) != 0) {
+            return false;
+        }
+    }
+
+    __asm__ __volatile__("mfence" ::: "memory");
+    const uint32_t* px = static_cast<const uint32_t*>(rbPtr);
+    const uint32_t total = width * height;
+    const uint32_t copyWords = total < outCapWords ? total : outCapWords;
+    for (uint32_t i = 0; i < copyWords; ++i) {
+        outBGRA[i] = px[i];
+    }
+
+    auto destroyObj = [&](uint32_t cmdType, uint64_t handle) {
+        if (handle == 0) {
+            return;
+        }
+        uint8_t buf[64];
+        CsEncoder e(buf, sizeof(buf));
+        e.writeCommandType(cmdType);
+        e.writeFlags(0);
+        e.writeHandle(device_);
+        e.writeHandle(handle);
+        e.writeSimplePointer(false);
+        if (!e.overflowed()) {
+            ringSubmit(buf, static_cast<uint32_t>(e.length()), 0, nullptr);
+        }
+    };
+    destroyObj(VK_COMMAND_TYPE_vkDestroyFence, fence);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyCommandPool, cmdPool);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyPipeline, pipeline);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyPipelineLayout, pipelineLayout);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyDescriptorPool, descPool);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyDescriptorSetLayout, setLayout);
+    destroyObj(VK_COMMAND_TYPE_vkDestroySampler, sampler);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyFramebuffer, framebuffer);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyRenderPass, renderPass);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyImageView, texView);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyImage, texImage);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyImageView, rtView);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyImage, rtImage);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyBuffer, rbuf);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyBuffer, rectBuf);
+    destroyObj(VK_COMMAND_TYPE_vkFreeMemory, rtMemory);
+    destroyObj(VK_COMMAND_TYPE_vkFreeMemory, texMemory);
+    destroyObj(VK_COMMAND_TYPE_vkFreeMemory, rectMemory);
+    destroyObj(VK_COMMAND_TYPE_vkFreeMemory, rbMemory);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyShaderModule, vert);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyShaderModule, frag);
+    gpu_->unmapBlobResource(rtMemRes);
+    gpu_->unrefResource(rtMemRes);
+    gpu_->unmapBlobResource(texMemRes);
+    gpu_->unrefResource(texMemRes);
+    gpu_->unmapBlobResource(rectMemRes);
+    gpu_->unrefResource(rectMemRes);
+    gpu_->unmapBlobResource(rbMemRes);
+    gpu_->unrefResource(rbMemRes);
+
+    return copyWords > 0;
+}
+
+bool VulkanSession::compositeLayers(uint32_t targetW, uint32_t targetH, uint32_t clearColor,
+                                    const Layer* layers, uint32_t layerCount,
+                                    uint32_t* outBGRA, uint32_t outCapWords) {
+    (void)clearColor;  // cleared to opaque black; caller provides a full-screen bg layer
+    if (!ringReady_ || device_ == 0 || physDevCount_ == 0 || targetW == 0 || targetH == 0 ||
+        layers == nullptr || layerCount == 0 || layerCount > kMaxLayers) {
+        return false;
+    }
+
+    auto createShader = [&](const uint32_t* spirv, uint32_t wordCount, uint64_t* outHandle) -> bool {
+        const uint64_t handle = allocHandleId();
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateShaderModule);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeSizeT(static_cast<uint64_t>(wordCount) * 4);
+            e.writeArraySize(wordCount);
+            for (uint32_t i = 0; i < wordCount; ++i) {
+                e.writeU32(spirv[i]);
+            }
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(handle);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateShaderModule) != 0) {
+            return false;
+        }
+        *outHandle = handle;
+        return true;
+    };
+
+    // Create a BGRA 2D image (given tiling/usage/initialLayout) and bind memory.
+    // When `hostVisiblePtr` is non-null the memory is host-visible and mapped.
+    auto createBoundImage = [&](uint32_t w, uint32_t h, uint32_t tiling, uint32_t usage,
+                                uint32_t initialLayout, uint64_t* outImage, uint64_t* outMemory,
+                                uint32_t* outMemRes, void** hostVisiblePtr) -> bool {
+        const uint64_t image = allocHandleId();
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkCreateImage);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            if (e.writeSimplePointer(true)) {
+                e.writeStructureType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO);
+                e.writeSimplePointer(false);
+                e.writeFlags(0);
+                e.writeU32(VK_IMAGE_TYPE_2D);
+                e.writeU32(VK_FORMAT_B8G8R8A8_UNORM);
+                e.writeU32(w);
+                e.writeU32(h);
+                e.writeU32(1);
+                e.writeU32(1);
+                e.writeU32(1);
+                e.writeU32(VK_SAMPLE_COUNT_1_BIT);
+                e.writeU32(tiling);
+                e.writeFlags(usage);
+                e.writeU32(VK_SHARING_MODE_EXCLUSIVE);
+                e.writeU32(0);
+                e.writeArraySize(0);
+                e.writeU32(initialLayout);
+            }
+            e.writeSimplePointer(false);
+            if (e.writeSimplePointer(true)) {
+                e.writeHandle(image);
+            }
+            if (e.overflowed() ||
+                decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateImage) != 0) {
+                return false;
+            }
+        }
+        uint64_t memSize = static_cast<uint64_t>(w) * h * 4;
+        uint32_t memBits = 0xFFFFFFFFu;
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkGetImageMemoryRequirements);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            e.writeHandle(image);
+            e.writeSimplePointer(true);
+            const uint8_t* reply = nullptr;
+            if (e.overflowed() ||
+                !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+                return false;
+            }
+            CsDecoder dec(reply, replySize_);
+            if (dec.readU32() != VK_COMMAND_TYPE_vkGetImageMemoryRequirements ||
+                dec.readArraySize() == 0) {
+                return false;
+            }
+            memSize = dec.readU64();
+            dec.readU64();
+            memBits = dec.readU32();
+            if (dec.fatal()) {
+                return false;
+            }
+        }
+        uint32_t typeIndex = 0;
+        if (!selectHostVisibleMemoryType(physDevs_[0], memBits, &typeIndex)) {
+            if (hostVisiblePtr) {
+                return false;  // needs host-visible memory but none available
+            }
+            for (uint32_t i = 0; i < 32; ++i) {
+                if (memBits & (1u << i)) { typeIndex = i; break; }
+            }
+        }
+        void* ptr = nullptr;
+        if (!allocateMappableMemory(memSize, typeIndex, outMemory, outMemRes, &ptr)) {
+            return false;
+        }
+        if (hostVisiblePtr) {
+            *hostVisiblePtr = ptr;
+        }
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkBindImageMemory);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            e.writeHandle(image);
+            e.writeHandle(*outMemory);
+            e.writeU64(0);
+            if (e.overflowed() ||
+                decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBindImageMemory) != 0) {
+                return false;
+            }
+        }
+        *outImage = image;
+        return true;
+    };
+
+    auto createColorView = [&](uint64_t image, uint64_t* outView) -> bool {
+        const uint64_t view = allocHandleId();
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateImageView);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeHandle(image);
+            e.writeU32(VK_IMAGE_VIEW_TYPE_2D);
+            e.writeU32(VK_FORMAT_B8G8R8A8_UNORM);
+            e.writeU32(VK_COMPONENT_SWIZZLE_IDENTITY);
+            e.writeU32(VK_COMPONENT_SWIZZLE_IDENTITY);
+            e.writeU32(VK_COMPONENT_SWIZZLE_IDENTITY);
+            e.writeU32(VK_COMPONENT_SWIZZLE_IDENTITY);
+            e.writeFlags(VK_IMAGE_ASPECT_COLOR_BIT);
+            e.writeU32(0);
+            e.writeU32(1);
+            e.writeU32(0);
+            e.writeU32(1);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(view);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateImageView) != 0) {
+            return false;
+        }
+        *outView = view;
+        return true;
+    };
+
+    uint64_t vert = 0, frag = 0;
+    if (!createShader(kQuadRectVertSpirv, sizeof(kQuadRectVertSpirv) / 4, &vert) ||
+        !createShader(kQuadFragSpirv, sizeof(kQuadFragSpirv) / 4, &frag)) {
+        return false;
+    }
+
+    // Render target (targetW x targetH, color attachment + transfer src) + view.
+    uint64_t rtImage = 0, rtMemory = 0;
+    uint32_t rtMemRes = 0;
+    if (!createBoundImage(targetW, targetH, VK_IMAGE_TILING_OPTIMAL,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                          VK_IMAGE_LAYOUT_UNDEFINED, &rtImage, &rtMemory, &rtMemRes, nullptr)) {
+        return false;
+    }
+    uint64_t rtView = 0;
+    if (!createColorView(rtImage, &rtView)) {
+        return false;
+    }
+
+    // Sampler (shared by all layers).
+    const uint64_t sampler = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateSampler);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(VK_FILTER_LINEAR);
+            e.writeU32(VK_FILTER_LINEAR);
+            e.writeU32(VK_SAMPLER_MIPMAP_MODE_NEAREST);
+            e.writeU32(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+            e.writeU32(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+            e.writeU32(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeU32(0);
+            e.writeFloatBits(kFloatOneBits);
+            e.writeU32(0);
+            e.writeU32(VK_COMPARE_OP_ALWAYS);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeU32(VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK);
+            e.writeU32(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(sampler);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateSampler) != 0) {
+            return false;
+        }
+    }
+
+    // Descriptor set layout: binding 0 = combined image sampler (frag),
+    // binding 1 = storage buffer rect (vertex). Shared by all layers.
+    const uint64_t setLayout = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateDescriptorSetLayout);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(2);
+            e.writeArraySize(2);
+            e.writeU32(0);
+            e.writeU32(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            e.writeU32(1);
+            e.writeFlags(VK_SHADER_STAGE_FRAGMENT_BIT);
+            e.writeArraySize(0);
+            e.writeU32(1);
+            e.writeU32(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            e.writeU32(1);
+            e.writeFlags(VK_SHADER_STAGE_VERTEX_BIT);
+            e.writeArraySize(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(setLayout);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateDescriptorSetLayout) != 0) {
+            return false;
+        }
+    }
+
+    // Descriptor pool sized for one set per layer.
+    const uint64_t descPool = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateDescriptorPool);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(layerCount);         // maxSets
+            e.writeU32(2);                  // poolSizeCount
+            e.writeArraySize(2);
+            e.writeU32(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            e.writeU32(layerCount);
+            e.writeU32(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            e.writeU32(layerCount);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(descPool);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateDescriptorPool) != 0) {
+            return false;
+        }
+    }
+
+    // Pipeline layout (one set layout).
+    const uint64_t pipelineLayout = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreatePipelineLayout);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeHandle(setLayout);
+            e.writeU32(0);
+            e.writeArraySize(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(pipelineLayout);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreatePipelineLayout) != 0) {
+            return false;
+        }
+    }
+
+    // Render pass (clear -> store, final layout TRANSFER_SRC).
+    const uint64_t renderPass = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateRenderPass);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeFlags(0);
+            e.writeU32(VK_FORMAT_B8G8R8A8_UNORM);
+            e.writeU32(VK_SAMPLE_COUNT_1_BIT);
+            e.writeU32(VK_ATTACHMENT_LOAD_OP_CLEAR);
+            e.writeU32(VK_ATTACHMENT_STORE_OP_STORE);
+            e.writeU32(VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+            e.writeU32(VK_ATTACHMENT_STORE_OP_DONT_CARE);
+            e.writeU32(VK_IMAGE_LAYOUT_UNDEFINED);
+            e.writeU32(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeFlags(0);
+            e.writeU32(VK_PIPELINE_BIND_POINT_GRAPHICS);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeU32(0);
+            e.writeU32(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            e.writeArraySize(0);
+            e.writeSimplePointer(false);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            e.writeU32(0);
+            e.writeArraySize(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(renderPass);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateRenderPass) != 0) {
+            return false;
+        }
+    }
+
+    // Framebuffer over the render target view.
+    const uint64_t framebuffer = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateFramebuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeHandle(renderPass);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeHandle(rtView);
+            e.writeU32(targetW);
+            e.writeU32(targetH);
+            e.writeU32(1);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(framebuffer);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateFramebuffer) != 0) {
+            return false;
+        }
+    }
+
+    // Graphics pipeline (rect-positioned quad, alpha blending enabled).
+    const uint64_t pipeline = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateGraphicsPipelines);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(0);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeStructureType(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO);
+        e.writeSimplePointer(false);
+        e.writeFlags(0);
+        e.writeU32(2);
+        e.writeArraySize(2);
+        e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
+        e.writeSimplePointer(false);
+        e.writeFlags(0);
+        e.writeU32(VK_SHADER_STAGE_VERTEX_BIT);
+        e.writeHandle(vert);
+        e.writeString("main");
+        e.writeSimplePointer(false);
+        e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
+        e.writeSimplePointer(false);
+        e.writeFlags(0);
+        e.writeU32(VK_SHADER_STAGE_FRAGMENT_BIT);
+        e.writeHandle(frag);
+        e.writeString("main");
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            e.writeU32(0);
+            e.writeArraySize(0);
+        }
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+            e.writeU32(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(uintToFloatBits(targetW));
+            e.writeFloatBits(uintToFloatBits(targetH));
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatOneBits);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeU32(targetW);
+            e.writeU32(targetH);
+        }
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeU32(VK_POLYGON_MODE_FILL);
+            e.writeFlags(VK_CULL_MODE_NONE);
+            e.writeU32(VK_FRONT_FACE_COUNTER_CLOCKWISE);
+            e.writeU32(0);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatOneBits);
+        }
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(VK_SAMPLE_COUNT_1_BIT);
+            e.writeU32(0);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeArraySize(0);
+            e.writeU32(0);
+            e.writeU32(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(0);
+            e.writeU32(VK_LOGIC_OP_CLEAR);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeU32(1);                                    // blendEnable
+            e.writeU32(VK_BLEND_FACTOR_SRC_ALPHA);            // srcColorBlendFactor
+            e.writeU32(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);  // dstColorBlendFactor
+            e.writeU32(VK_BLEND_OP_ADD);
+            e.writeU32(VK_BLEND_FACTOR_ONE);                  // srcAlphaBlendFactor
+            e.writeU32(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);  // dstAlphaBlendFactor
+            e.writeU32(VK_BLEND_OP_ADD);
+            e.writeFlags(VK_COLOR_COMPONENT_RGBA);
+            e.writeArraySize(4);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+        }
+        e.writeSimplePointer(false);
+        e.writeHandle(pipelineLayout);
+        e.writeHandle(renderPass);
+        e.writeU32(0);
+        e.writeHandle(0);
+        e.writeU32(0xFFFFFFFFu);
+        e.writeSimplePointer(false);
+        e.writeArraySize(1);
+        e.writeHandle(pipeline);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkCreateGraphicsPipelines) {
+            return false;
+        }
+        const int32_t ret = static_cast<int32_t>(dec.readU32());
+        if (dec.readArraySize() != 0) {
+            dec.readHandle();
+        }
+        if (dec.fatal() || ret != 0) {
+            return false;
+        }
+    }
+
+    // Per-layer resources: texture (+view), rect storage buffer, descriptor set.
+    uint64_t texImage[kMaxLayers] = {};
+    uint64_t texMemory[kMaxLayers] = {};
+    uint32_t texMemRes[kMaxLayers] = {};
+    uint64_t texView[kMaxLayers] = {};
+    uint64_t rectBuf[kMaxLayers] = {};
+    uint64_t rectMemory[kMaxLayers] = {};
+    uint32_t rectMemRes[kMaxLayers] = {};
+    uint64_t descSet[kMaxLayers] = {};
+
+    for (uint32_t i = 0; i < layerCount; ++i) {
+        const Layer& layer = layers[i];
+        if (!layer.pixels || layer.srcW == 0 || layer.srcH == 0 || layer.dstW == 0 ||
+            layer.dstH == 0) {
+            return false;
+        }
+
+        // LINEAR host-visible texture filled directly with the layer pixels.
+        void* texPtr = nullptr;
+        if (!createBoundImage(layer.srcW, layer.srcH, VK_IMAGE_TILING_LINEAR,
+                              VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_LAYOUT_PREINITIALIZED,
+                              &texImage[i], &texMemory[i], &texMemRes[i], &texPtr) ||
+            !texPtr) {
+            return false;
+        }
+        {
+            uint32_t* w = static_cast<uint32_t*>(texPtr);
+            const uint32_t count = layer.srcW * layer.srcH;
+            for (uint32_t p = 0; p < count; ++p) {
+                w[p] = layer.pixels[p];
+            }
+            __asm__ __volatile__("mfence" ::: "memory");
+        }
+        if (!createColorView(texImage[i], &texView[i])) {
+            return false;
+        }
+
+        // Rect storage buffer {dstX,dstY,dstW,dstH,targetW,targetH}.
+        rectBuf[i] = allocHandleId();
+        const uint64_t rectBytes = 6 * sizeof(uint32_t);
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkCreateBuffer);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            if (e.writeSimplePointer(true)) {
+                e.writeStructureType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO);
+                e.writeSimplePointer(false);
+                e.writeFlags(0);
+                e.writeU64(rectBytes);
+                e.writeFlags(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                e.writeU32(VK_SHARING_MODE_EXCLUSIVE);
+                e.writeU32(0);
+                e.writeArraySize(0);
+            }
+            e.writeSimplePointer(false);
+            if (e.writeSimplePointer(true)) {
+                e.writeHandle(rectBuf[i]);
+            }
+            if (e.overflowed() ||
+                decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateBuffer) != 0) {
+                return false;
+            }
+        }
+        uint64_t rectReqSize = rectBytes;
+        uint32_t rectBits = 0xFFFFFFFFu;
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkGetBufferMemoryRequirements);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            e.writeHandle(rectBuf[i]);
+            e.writeSimplePointer(true);
+            const uint8_t* reply = nullptr;
+            if (e.overflowed() ||
+                !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+                return false;
+            }
+            CsDecoder dec(reply, replySize_);
+            if (dec.readU32() != VK_COMMAND_TYPE_vkGetBufferMemoryRequirements ||
+                dec.readArraySize() == 0) {
+                return false;
+            }
+            rectReqSize = dec.readU64();
+            dec.readU64();
+            rectBits = dec.readU32();
+            if (dec.fatal()) {
+                return false;
+            }
+        }
+        uint32_t rectTypeIndex = 0;
+        if (!selectHostVisibleMemoryType(physDevs_[0], rectBits, &rectTypeIndex)) {
+            return false;
+        }
+        void* rectPtr = nullptr;
+        if (!allocateMappableMemory(rectReqSize, rectTypeIndex, &rectMemory[i], &rectMemRes[i],
+                                    &rectPtr)) {
+            return false;
+        }
+        {
+            uint32_t* rw = static_cast<uint32_t*>(rectPtr);
+            rw[0] = layer.dstX;
+            rw[1] = layer.dstY;
+            rw[2] = layer.dstW;
+            rw[3] = layer.dstH;
+            rw[4] = targetW;
+            rw[5] = targetH;
+            __asm__ __volatile__("mfence" ::: "memory");
+        }
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkBindBufferMemory);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            e.writeHandle(rectBuf[i]);
+            e.writeHandle(rectMemory[i]);
+            e.writeU64(0);
+            if (e.overflowed() ||
+                decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBindBufferMemory) != 0) {
+                return false;
+            }
+        }
+
+        // Descriptor set for this layer.
+        descSet[i] = allocHandleId();
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkAllocateDescriptorSets);
+            e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+            e.writeHandle(device_);
+            if (e.writeSimplePointer(true)) {
+                e.writeStructureType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO);
+                e.writeSimplePointer(false);
+                e.writeHandle(descPool);
+                e.writeU32(1);
+                e.writeArraySize(1);
+                e.writeHandle(setLayout);
+            }
+            e.writeArraySize(1);
+            e.writeHandle(descSet[i]);
+            const uint8_t* reply = nullptr;
+            if (e.overflowed() ||
+                !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+                return false;
+            }
+            CsDecoder dec(reply, replySize_);
+            if (dec.readU32() != VK_COMMAND_TYPE_vkAllocateDescriptorSets) {
+                return false;
+            }
+            const int32_t ret = static_cast<int32_t>(dec.readU32());
+            if (dec.readArraySize() != 0) {
+                dec.readHandle();
+            }
+            if (dec.fatal() || ret != 0) {
+                return false;
+            }
+        }
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkUpdateDescriptorSets);
+            e.writeFlags(0);
+            e.writeHandle(device_);
+            e.writeU32(2);
+            e.writeArraySize(2);
+            e.writeStructureType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET);
+            e.writeSimplePointer(false);
+            e.writeHandle(descSet[i]);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeU32(1);
+            e.writeU32(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            e.writeArraySize(1);
+            e.writeHandle(sampler);
+            e.writeHandle(texView[i]);
+            e.writeU32(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            e.writeArraySize(0);
+            e.writeArraySize(0);
+            e.writeStructureType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET);
+            e.writeSimplePointer(false);
+            e.writeHandle(descSet[i]);
+            e.writeU32(1);
+            e.writeU32(0);
+            e.writeU32(1);
+            e.writeU32(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            e.writeArraySize(0);
+            e.writeArraySize(1);
+            e.writeHandle(rectBuf[i]);
+            e.writeU64(0);
+            e.writeU64(VK_WHOLE_SIZE);
+            e.writeArraySize(0);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+                return false;
+            }
+        }
+    }
+
+    // Linear readback buffer sized targetW*targetH*4.
+    const uint64_t rbBytes = static_cast<uint64_t>(targetW) * targetH * 4;
+    const uint64_t rbuf = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateBuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU64(rbBytes);
+            e.writeFlags(VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+            e.writeU32(VK_SHARING_MODE_EXCLUSIVE);
+            e.writeU32(0);
+            e.writeArraySize(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(rbuf);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateBuffer) != 0) {
+            return false;
+        }
+    }
+    uint64_t rbReqSize = rbBytes;
+    uint32_t rbBits = 0xFFFFFFFFu;
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkGetBufferMemoryRequirements);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(rbuf);
+        e.writeSimplePointer(true);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkGetBufferMemoryRequirements ||
+            dec.readArraySize() == 0) {
+            return false;
+        }
+        rbReqSize = dec.readU64();
+        dec.readU64();
+        rbBits = dec.readU32();
+        if (dec.fatal()) {
+            return false;
+        }
+    }
+    uint32_t rbTypeIndex = 0;
+    if (!selectHostVisibleMemoryType(physDevs_[0], rbBits, &rbTypeIndex)) {
+        return false;
+    }
+    uint64_t rbMemory = 0;
+    uint32_t rbMemRes = 0;
+    void* rbPtr = nullptr;
+    if (!allocateMappableMemory(rbReqSize, rbTypeIndex, &rbMemory, &rbMemRes, &rbPtr)) {
+        return false;
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkBindBufferMemory);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeHandle(rbuf);
+        e.writeHandle(rbMemory);
+        e.writeU64(0);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBindBufferMemory) != 0) {
+            return false;
+        }
+    }
+
+    // Queue + command pool + command buffer.
+    const uint64_t queue = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkGetDeviceQueue2);
+        e.writeFlags(0);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2);
+            if (e.writeSimplePointer(true)) {
+                e.writeStructureType(VK_STRUCTURE_TYPE_DEVICE_QUEUE_TIMELINE_INFO_MESA);
+                e.writeSimplePointer(false);
+                e.writeU32(1);
+            }
+            e.writeFlags(0);
+            e.writeU32(0);
+            e.writeU32(0);
+        }
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(queue);
+        }
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    const uint64_t cmdPool = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateCommandPool);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+            e.writeU32(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(cmdPool);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateCommandPool) != 0) {
+            return false;
+        }
+    }
+    const uint64_t cmdBuf = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkAllocateCommandBuffers);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeHandle(cmdPool);
+            e.writeU32(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+            e.writeU32(1);
+        }
+        e.writeArraySize(1);
+        e.writeHandle(cmdBuf);
+        const uint8_t* reply = nullptr;
+        if (e.overflowed() ||
+            !ringSubmit(s, static_cast<uint32_t>(e.length()), 64, &reply) || !reply) {
+            return false;
+        }
+        CsDecoder dec(reply, replySize_);
+        if (dec.readU32() != VK_COMMAND_TYPE_vkAllocateCommandBuffers) {
+            return false;
+        }
+        const int32_t ret = static_cast<int32_t>(dec.readU32());
+        if (dec.readArraySize() != 0) {
+            dec.readHandle();
+        }
+        if (dec.fatal() || ret != 0) {
+            return false;
+        }
+    }
+
+    auto layerBarrier = [&](uint64_t image) -> bool {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdPipelineBarrier);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        e.writeFlags(VK_PIPELINE_STAGE_HOST_BIT);
+        e.writeFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        e.writeFlags(0);
+        e.writeU32(0);
+        e.writeArraySize(0);
+        e.writeU32(0);
+        e.writeArraySize(0);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeStructureType(VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER);
+        e.writeSimplePointer(false);
+        e.writeFlags(VK_ACCESS_HOST_WRITE_BIT);
+        e.writeFlags(VK_ACCESS_SHADER_READ_BIT);
+        e.writeU32(VK_IMAGE_LAYOUT_PREINITIALIZED);
+        e.writeU32(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        e.writeU32(VK_QUEUE_FAMILY_IGNORED);
+        e.writeU32(VK_QUEUE_FAMILY_IGNORED);
+        e.writeHandle(image);
+        e.writeFlags(VK_IMAGE_ASPECT_COLOR_BIT);
+        e.writeU32(0);
+        e.writeU32(1);
+        e.writeU32(0);
+        e.writeU32(1);
+        return !e.overflowed() && ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr);
+    };
+
+    // Record: begin; transition each layer texture; render pass; draw each
+    // layer's quad in order; copy the composed image to the readback buffer.
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkBeginCommandBuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(cmdBuf);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+            e.writeSimplePointer(false);
+        }
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkBeginCommandBuffer) != 0) {
+            return false;
+        }
+    }
+    for (uint32_t i = 0; i < layerCount; ++i) {
+        if (!layerBarrier(texImage[i])) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdBeginRenderPass);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO);
+            e.writeSimplePointer(false);
+            e.writeHandle(renderPass);
+            e.writeHandle(framebuffer);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeU32(targetW);
+            e.writeU32(targetH);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeU32(0);
+            e.writeU32(0);
+            e.writeArraySize(4);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatZeroBits);
+            e.writeFloatBits(kFloatOneBits);
+        }
+        e.writeU32(VK_SUBPASS_CONTENTS_INLINE);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdBindPipeline);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        e.writeU32(VK_PIPELINE_BIND_POINT_GRAPHICS);
+        e.writeHandle(pipeline);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    for (uint32_t i = 0; i < layerCount; ++i) {
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkCmdBindDescriptorSets);
+            e.writeFlags(0);
+            e.writeHandle(cmdBuf);
+            e.writeU32(VK_PIPELINE_BIND_POINT_GRAPHICS);
+            e.writeHandle(pipelineLayout);
+            e.writeU32(0);
+            e.writeU32(1);
+            e.writeArraySize(1);
+            e.writeHandle(descSet[i]);
+            e.writeU32(0);
+            e.writeArraySize(0);
+            if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+                return false;
+            }
+        }
+        {
+            uint8_t* s = blob_ + scratchOffset_;
+            CsEncoder e(s, scratchSize_);
+            e.writeCommandType(VK_COMMAND_TYPE_vkCmdDraw);
+            e.writeFlags(0);
+            e.writeHandle(cmdBuf);
+            e.writeU32(6);
+            e.writeU32(1);
+            e.writeU32(0);
+            e.writeU32(0);
+            if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+                return false;
+            }
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdEndRenderPass);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCmdCopyImageToBuffer);
+        e.writeFlags(0);
+        e.writeHandle(cmdBuf);
+        e.writeHandle(rtImage);
+        e.writeU32(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        e.writeHandle(rbuf);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeU64(0);
+        e.writeU32(0);
+        e.writeU32(0);
+        e.writeFlags(VK_IMAGE_ASPECT_COLOR_BIT);
+        e.writeU32(0);
+        e.writeU32(0);
+        e.writeU32(1);
+        e.writeU32(0);
+        e.writeU32(0);
+        e.writeU32(0);
+        e.writeU32(targetW);
+        e.writeU32(targetH);
+        e.writeU32(1);
+        if (e.overflowed() || !ringSubmit(s, static_cast<uint32_t>(e.length()), 0, nullptr)) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkEndCommandBuffer);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(cmdBuf);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkEndCommandBuffer) != 0) {
+            return false;
+        }
+    }
+
+    const uint64_t fence = allocHandleId();
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkCreateFence);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        if (e.writeSimplePointer(true)) {
+            e.writeStructureType(VK_STRUCTURE_TYPE_FENCE_CREATE_INFO);
+            e.writeSimplePointer(false);
+            e.writeFlags(0);
+        }
+        e.writeSimplePointer(false);
+        if (e.writeSimplePointer(true)) {
+            e.writeHandle(fence);
+        }
+        if (e.overflowed() ||
+            decodeCreateReply(s, e.length(), VK_COMMAND_TYPE_vkCreateFence) != 0) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkQueueSubmit);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(queue);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeStructureType(VK_STRUCTURE_TYPE_SUBMIT_INFO);
+        e.writeSimplePointer(false);
+        e.writeU32(0);
+        e.writeArraySize(0);
+        e.writeArraySize(0);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeHandle(cmdBuf);
+        e.writeU32(0);
+        e.writeArraySize(0);
+        e.writeHandle(fence);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkQueueSubmit) != 0) {
+            return false;
+        }
+    }
+    {
+        uint8_t* s = blob_ + scratchOffset_;
+        CsEncoder e(s, scratchSize_);
+        e.writeCommandType(VK_COMMAND_TYPE_vkWaitForFences);
+        e.writeFlags(VK_COMMAND_GENERATE_REPLY_BIT);
+        e.writeHandle(device_);
+        e.writeU32(1);
+        e.writeArraySize(1);
+        e.writeHandle(fence);
+        e.writeU32(1);
+        e.writeU64(~0ULL);
+        if (e.overflowed() ||
+            decodeStatusReply(s, e.length(), VK_COMMAND_TYPE_vkWaitForFences) != 0) {
+            return false;
+        }
+    }
+
+    __asm__ __volatile__("mfence" ::: "memory");
+    const uint32_t* px = static_cast<const uint32_t*>(rbPtr);
+    const uint32_t total = targetW * targetH;
+    const uint32_t copyWords = total < outCapWords ? total : outCapWords;
+    for (uint32_t i = 0; i < copyWords; ++i) {
+        outBGRA[i] = px[i];
+    }
+
+    auto destroyObj = [&](uint32_t cmdType, uint64_t handle) {
+        if (handle == 0) {
+            return;
+        }
+        uint8_t buf[64];
+        CsEncoder e(buf, sizeof(buf));
+        e.writeCommandType(cmdType);
+        e.writeFlags(0);
+        e.writeHandle(device_);
+        e.writeHandle(handle);
+        e.writeSimplePointer(false);
+        if (!e.overflowed()) {
+            ringSubmit(buf, static_cast<uint32_t>(e.length()), 0, nullptr);
+        }
+    };
+    for (uint32_t i = 0; i < layerCount; ++i) {
+        destroyObj(VK_COMMAND_TYPE_vkDestroyImageView, texView[i]);
+        destroyObj(VK_COMMAND_TYPE_vkDestroyImage, texImage[i]);
+        destroyObj(VK_COMMAND_TYPE_vkDestroyBuffer, rectBuf[i]);
+        destroyObj(VK_COMMAND_TYPE_vkFreeMemory, texMemory[i]);
+        destroyObj(VK_COMMAND_TYPE_vkFreeMemory, rectMemory[i]);
+        gpu_->unmapBlobResource(texMemRes[i]);
+        gpu_->unrefResource(texMemRes[i]);
+        gpu_->unmapBlobResource(rectMemRes[i]);
+        gpu_->unrefResource(rectMemRes[i]);
+    }
+    destroyObj(VK_COMMAND_TYPE_vkDestroyFence, fence);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyCommandPool, cmdPool);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyPipeline, pipeline);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyPipelineLayout, pipelineLayout);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyDescriptorPool, descPool);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyDescriptorSetLayout, setLayout);
+    destroyObj(VK_COMMAND_TYPE_vkDestroySampler, sampler);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyFramebuffer, framebuffer);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyRenderPass, renderPass);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyImageView, rtView);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyImage, rtImage);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyBuffer, rbuf);
+    destroyObj(VK_COMMAND_TYPE_vkFreeMemory, rtMemory);
+    destroyObj(VK_COMMAND_TYPE_vkFreeMemory, rbMemory);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyShaderModule, vert);
+    destroyObj(VK_COMMAND_TYPE_vkDestroyShaderModule, frag);
+    gpu_->unmapBlobResource(rtMemRes);
+    gpu_->unrefResource(rtMemRes);
+    gpu_->unmapBlobResource(rbMemRes);
+    gpu_->unrefResource(rbMemRes);
+
+    return copyWords > 0;
+}
+
 void VulkanSession::shutdown() {
     if (gpu_ == nullptr) {
         ringReady_ = false;
@@ -3018,6 +5706,228 @@ bool Venus::renderTriangleToScreen(uint32_t size) {
         PMM::FreeFrame(phys + i * PMM::PAGE_SIZE);
     }
     return rendered;
+}
+
+bool Venus::renderTexturedQuadToScreen(uint32_t size) {
+    if (!negotiate()) {
+        return false;
+    }
+    VirtIOGPUDriver& gpu = VirtIOGPUDriver::get();
+    if (!gpu.isInitialized()) {
+        return false;
+    }
+
+    uint32_t fbW = 0, fbH = 0;
+    gpu.getMode(&fbW, &fbH);
+    if (fbW == 0 || fbH == 0) {
+        return false;
+    }
+    if (size > fbW) size = fbW;
+    if (size > fbH) size = fbH;
+
+    // Readback buffer for the rendered quad (BGRA, size*size).
+    const uint64_t pixelCount = static_cast<uint64_t>(size) * size;
+    const uint64_t bytes = pixelCount * 4;
+    const uint64_t pages = (bytes + PMM::PAGE_SIZE - 1) / PMM::PAGE_SIZE;
+    const uint64_t phys = PMM::AllocFrames(pages);
+    if (!phys) {
+        return false;
+    }
+    uint32_t* pixels = reinterpret_cast<uint32_t*>(phys);
+
+    // Generate a 256x256 checkerboard test texture (BGRA words, i.e. 0xAARRGGBB).
+    const uint32_t texEdge = 256;
+    const uint64_t texPixels = static_cast<uint64_t>(texEdge) * texEdge;
+    const uint64_t texBytes = texPixels * 4;
+    const uint64_t texPages = (texBytes + PMM::PAGE_SIZE - 1) / PMM::PAGE_SIZE;
+    const uint64_t texPhys = PMM::AllocFrames(texPages);
+    if (!texPhys) {
+        for (uint64_t i = 0; i < pages; ++i) {
+            PMM::FreeFrame(phys + i * PMM::PAGE_SIZE);
+        }
+        return false;
+    }
+    uint32_t* tex = reinterpret_cast<uint32_t*>(texPhys);
+    for (uint32_t y = 0; y < texEdge; ++y) {
+        for (uint32_t x = 0; x < texEdge; ++x) {
+            const bool cell = (((x >> 5) ^ (y >> 5)) & 1) != 0;
+            tex[y * texEdge + x] = cell ? 0xFF3060C0u : 0xFFF0F0F0u;
+        }
+    }
+
+    bool rendered = false;
+    for (uint32_t attempt = 0; attempt < 3 && !rendered; ++attempt) {
+        VulkanSession session;
+        if (!session.init()) {
+            continue;
+        }
+        if (session.createInstance() != 0 || session.instanceHandle() == 0) {
+            session.shutdown();
+            continue;
+        }
+        if (session.enumeratePhysicalDevices() == 0) {
+            session.shutdown();
+            continue;
+        }
+        if (session.createDevice(0) != 0 || session.deviceHandle() == 0) {
+            session.shutdown();
+            continue;
+        }
+        // Place the texture in a centered sub-rect (proves rect positioning via
+        // the storage-buffer path); the surrounding area keeps the clear color.
+        rendered = session.renderTexturedQuad(size, size, tex, texEdge, texEdge,
+                                              size / 4, size / 4, size / 2, size / 2, pixels,
+                                              static_cast<uint32_t>(pixelCount));
+        session.shutdown();
+    }
+
+    if (rendered) {
+        auto* dst = static_cast<uint32_t*>(gpu.getFramebuffer());
+        if (dst) {
+            const uint32_t pitchPixels = gpu.getPitch() / 4;
+            const uint32_t originX = (fbW - size) / 2;
+            const uint32_t originY = (fbH - size) / 2;
+            for (uint32_t row = 0; row < size; ++row) {
+                uint32_t* d = dst + (originY + row) * pitchPixels + originX;
+                const uint32_t* srcRow = pixels + static_cast<uint64_t>(row) * size;
+                memcpy(d, srcRow, static_cast<uint64_t>(size) * 4);
+            }
+            gpu.flush(0, 0, fbW, fbH);
+        }
+    }
+
+    for (uint64_t i = 0; i < texPages; ++i) {
+        PMM::FreeFrame(texPhys + i * PMM::PAGE_SIZE);
+    }
+    for (uint64_t i = 0; i < pages; ++i) {
+        PMM::FreeFrame(phys + i * PMM::PAGE_SIZE);
+    }
+    return rendered;
+}
+
+bool Venus::compositeToScreen(const VulkanSession::Layer* layers, uint32_t layerCount) {
+    if (!negotiate() || layers == nullptr || layerCount == 0) {
+        return false;
+    }
+    VirtIOGPUDriver& gpu = VirtIOGPUDriver::get();
+    if (!gpu.isInitialized()) {
+        return false;
+    }
+    uint32_t fbW = 0, fbH = 0;
+    gpu.getMode(&fbW, &fbH);
+    if (fbW == 0 || fbH == 0) {
+        return false;
+    }
+
+    // Lazily create the persistent session (retry to ride out cold-start).
+    if (compositeSession_ == nullptr) {
+        for (uint32_t attempt = 0; attempt < 3 && compositeSession_ == nullptr; ++attempt) {
+            VulkanSession* sess = new VulkanSession();
+            if (sess->init() && sess->createInstance() == 0 && sess->instanceHandle() != 0 &&
+                sess->enumeratePhysicalDevices() > 0 && sess->createDevice(0) == 0 &&
+                sess->deviceHandle() != 0) {
+                compositeSession_ = sess;
+            } else {
+                sess->shutdown();
+                delete sess;
+            }
+        }
+        if (compositeSession_ == nullptr) {
+            return false;
+        }
+    }
+
+    const uint64_t pixelCount = static_cast<uint64_t>(fbW) * fbH;
+    const uint64_t bytes = pixelCount * 4;
+    const uint64_t pages = (bytes + PMM::PAGE_SIZE - 1) / PMM::PAGE_SIZE;
+    const uint64_t phys = PMM::AllocFrames(pages);
+    if (!phys) {
+        return false;
+    }
+    uint32_t* pixels = reinterpret_cast<uint32_t*>(phys);
+
+    const bool ok = compositeSession_->compositeLayers(fbW, fbH, 0, layers, layerCount, pixels,
+                                                        static_cast<uint32_t>(pixelCount));
+    if (ok) {
+        auto* dst = static_cast<uint32_t*>(gpu.getFramebuffer());
+        if (dst) {
+            const uint32_t pitchPixels = gpu.getPitch() / 4;
+            for (uint32_t row = 0; row < fbH; ++row) {
+                memcpy(dst + static_cast<uint64_t>(row) * pitchPixels,
+                       pixels + static_cast<uint64_t>(row) * fbW, static_cast<uint64_t>(fbW) * 4);
+            }
+            gpu.flush(0, 0, fbW, fbH);
+        }
+    } else {
+        // A failed composite may leave the session unhealthy; drop it so the
+        // next call re-initializes from scratch.
+        compositeSession_->shutdown();
+        delete compositeSession_;
+        compositeSession_ = nullptr;
+    }
+
+    for (uint64_t i = 0; i < pages; ++i) {
+        PMM::FreeFrame(phys + i * PMM::PAGE_SIZE);
+    }
+    return ok;
+}
+
+bool Venus::compositeDemoToScreen() {
+    if (!negotiate()) {
+        return false;
+    }
+    VirtIOGPUDriver& gpu = VirtIOGPUDriver::get();
+    if (!gpu.isInitialized()) {
+        return false;
+    }
+    uint32_t fbW = 0, fbH = 0;
+    gpu.getMode(&fbW, &fbH);
+    if (fbW == 0 || fbH == 0) {
+        return false;
+    }
+
+    // Layer 0: full-screen background (solid teal).
+    const uint64_t bgCount = static_cast<uint64_t>(fbW) * fbH;
+    const uint64_t bgPages = (bgCount * 4 + PMM::PAGE_SIZE - 1) / PMM::PAGE_SIZE;
+    const uint64_t bgPhys = PMM::AllocFrames(bgPages);
+    // Layer 1: 256x256 checkerboard "window".
+    const uint32_t winEdge = 256;
+    const uint64_t winCount = static_cast<uint64_t>(winEdge) * winEdge;
+    const uint64_t winPages = (winCount * 4 + PMM::PAGE_SIZE - 1) / PMM::PAGE_SIZE;
+    const uint64_t winPhys = PMM::AllocFrames(winPages);
+    if (!bgPhys || !winPhys) {
+        if (bgPhys) {
+            for (uint64_t i = 0; i < bgPages; ++i) PMM::FreeFrame(bgPhys + i * PMM::PAGE_SIZE);
+        }
+        if (winPhys) {
+            for (uint64_t i = 0; i < winPages; ++i) PMM::FreeFrame(winPhys + i * PMM::PAGE_SIZE);
+        }
+        return false;
+    }
+    uint32_t* bg = reinterpret_cast<uint32_t*>(bgPhys);
+    for (uint64_t i = 0; i < bgCount; ++i) {
+        bg[i] = 0xFF206060u;  // opaque teal
+    }
+    uint32_t* win = reinterpret_cast<uint32_t*>(winPhys);
+    for (uint32_t y = 0; y < winEdge; ++y) {
+        for (uint32_t x = 0; x < winEdge; ++x) {
+            const bool cell = (((x >> 5) ^ (y >> 5)) & 1) != 0;
+            win[y * winEdge + x] = cell ? 0xFFE0E0E0u : 0xFF303030u;
+        }
+    }
+
+    const uint32_t winW = fbW / 2;
+    const uint32_t winH = fbH / 2;
+    VulkanSession::Layer layers[2] = {};
+    layers[0] = VulkanSession::Layer{bg, fbW, fbH, 0, 0, fbW, fbH};
+    layers[1] = VulkanSession::Layer{win, winEdge, winEdge, (fbW - winW) / 2, (fbH - winH) / 2,
+                                     winW, winH};
+
+    const bool ok = compositeToScreen(layers, 2);
+
+    for (uint64_t i = 0; i < bgPages; ++i) PMM::FreeFrame(bgPhys + i * PMM::PAGE_SIZE);
+    for (uint64_t i = 0; i < winPages; ++i) PMM::FreeFrame(winPhys + i * PMM::PAGE_SIZE);
+    return ok;
 }
 
 } // namespace venus

@@ -44,7 +44,7 @@ unsigned long long runtimeBase;
 
 namespace {
 #if !defined(INSTANTOS_DEBUG) && !defined(INPUT_PROBE_ONLY)
-#define INSTANTOS_BOOT_SPINNER 1
+// #define INSTANTOS_BOOT_SPINNER 1 
 #endif
 
 struct TableRegister {
@@ -570,18 +570,35 @@ void runVenusProbe(VirtIOGPUDriver& virtioGpu) {
         Console::get().drawText("\n");
     }
 
+    // GPU compositor: composite multiple layers (background + a window) on the
+    // GPU via Venus and present. This is the mechanism the userland compositor
+    // drives via sys_gpu_composite. Run first so it exercises an early Vulkan
+    // session (the per-demo sessions below otherwise accumulate host resources
+    // and the flaky host renderer can fail a later cold-start).
+    const bool composited = vk.compositeDemoToScreen();
+    Console::get().drawText("[VENUS] composite: ");
+    Console::get().drawText(composited ? "ok" : "fail");
+    Console::get().drawText("\n");
+    if (composited) {
+        for (volatile uint64_t i = 0; i < 800000000ULL; ++i) {
+            __asm__ __volatile__("pause" ::: "memory");
+        }
+    }
+
     // Visual demo: render a real GPU triangle (graphics pipeline) and blit it to
-    // the display so it is actually visible on screen. Held briefly so it can be
-    // seen / screenshotted before the boot continues into the compositor.
+    // the display so it is actually visible on screen.
     const bool drew = vk.renderTriangleToScreen(480);
     Console::get().drawText("[VENUS] triangle on screen: ");
     Console::get().drawText(drew ? "ok" : "fail");
     Console::get().drawText("\n");
-    if (drew) {
-        // Hold the rendered frame ~3s (busy wait on the PIT/TSC-independent loop)
-        // so the GPU triangle is visible. Re-flush periodically in case the
-        // console scrolls over it.
-        for (volatile uint64_t i = 0; i < 6000000000ULL; ++i) {
+
+    // GPU textured quad (single positioned layer).
+    const bool drewTex = vk.renderTexturedQuadToScreen(480);
+    Console::get().drawText("[VENUS] textured quad: ");
+    Console::get().drawText(drewTex ? "ok" : "fail");
+    Console::get().drawText("\n");
+    if (drewTex) {
+        for (volatile uint64_t i = 0; i < 800000000ULL; ++i) {
             __asm__ __volatile__("pause" ::: "memory");
         }
     }
@@ -716,6 +733,9 @@ static void runInputProbeOnly() {
 }
 #endif
 
+// hi wife hi cutie 
+// i love you i love you more smatie what are we making interesting trick 
+// okie wife also has to lock in what is wife doing geography i what was this writing gramar vocabulary i see good luck cutie, i belive in you :heart: thank you my love kisses kisses love youi love you too my magic man
 extern "C" void InstantOS(BootInfo* bootInfo) {
     runtimeBase = bootInfo->kernelBase;
     asm("cli");

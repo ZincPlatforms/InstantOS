@@ -64,6 +64,8 @@ enum VkCommandTypeEXT : uint32_t {
     VK_COMMAND_TYPE_vkDestroyPipeline = 67,
     VK_COMMAND_TYPE_vkCreatePipelineLayout = 68,
     VK_COMMAND_TYPE_vkDestroyPipelineLayout = 69,
+    VK_COMMAND_TYPE_vkCreateSampler = 70,
+    VK_COMMAND_TYPE_vkDestroySampler = 71,
     VK_COMMAND_TYPE_vkCreateDescriptorSetLayout = 72,
     VK_COMMAND_TYPE_vkDestroyDescriptorSetLayout = 73,
     VK_COMMAND_TYPE_vkCreateDescriptorPool = 74,
@@ -83,6 +85,7 @@ enum VkCommandTypeEXT : uint32_t {
     VK_COMMAND_TYPE_vkCmdBindDescriptorSets = 103,
     VK_COMMAND_TYPE_vkCmdDraw = 106,
     VK_COMMAND_TYPE_vkCmdDispatch = 110,
+    VK_COMMAND_TYPE_vkCmdCopyBufferToImage = 115,
     VK_COMMAND_TYPE_vkCmdCopyImageToBuffer = 116,
     VK_COMMAND_TYPE_vkCmdPipelineBarrier = 126,
     VK_COMMAND_TYPE_vkCmdBeginRenderPass = 133,
@@ -132,6 +135,8 @@ constexpr uint32_t VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO = 28;
 constexpr uint32_t VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO = 37;
 constexpr uint32_t VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO = 38;
 constexpr uint32_t VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO = 43;
+constexpr uint32_t VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO = 31;
+constexpr uint32_t VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER = 45;
 
 // Enum / flag values used by the graphics path.
 constexpr uint32_t VK_FORMAT_B8G8R8A8_UNORM = 44;
@@ -162,6 +167,8 @@ constexpr uint32_t VK_COLOR_COMPONENT_RGBA = 0x0000000F;
 constexpr uint32_t VK_LOGIC_OP_CLEAR = 0;
 constexpr uint32_t VK_BLEND_FACTOR_ONE = 1;
 constexpr uint32_t VK_BLEND_FACTOR_ZERO = 0;
+constexpr uint32_t VK_BLEND_FACTOR_SRC_ALPHA = 6;
+constexpr uint32_t VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA = 7;
 constexpr uint32_t VK_BLEND_OP_ADD = 0;
 // IEEE-754 bit patterns (the freestanding kernel avoids the soft-float runtime).
 constexpr uint32_t kFloatZeroBits = 0x00000000u;
@@ -180,6 +187,30 @@ constexpr uint32_t VK_MEMORY_PROPERTY_HOST_COHERENT_BIT = 0x00000004;
 constexpr uint32_t VK_MAX_MEMORY_TYPES = 32;
 constexpr uint32_t VK_MAX_MEMORY_HEAPS = 16;
 constexpr uint64_t VK_WHOLE_SIZE = ~0ULL;
+
+// Enum / flag values used by the textured-quad (compositor) path.
+constexpr uint32_t VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER = 1;
+constexpr uint32_t VK_IMAGE_USAGE_TRANSFER_DST_BIT = 0x00000002;
+constexpr uint32_t VK_IMAGE_USAGE_SAMPLED_BIT = 0x00000004;
+constexpr uint32_t VK_BUFFER_USAGE_TRANSFER_SRC_BIT = 0x00000001;
+constexpr uint32_t VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL = 5;
+constexpr uint32_t VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL = 7;
+constexpr uint32_t VK_FILTER_NEAREST = 0;
+constexpr uint32_t VK_FILTER_LINEAR = 1;
+constexpr uint32_t VK_SAMPLER_MIPMAP_MODE_NEAREST = 0;
+constexpr uint32_t VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE = 2;
+constexpr uint32_t VK_COMPARE_OP_ALWAYS = 7;
+constexpr uint32_t VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK = 0;
+constexpr uint32_t VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT = 0x00000001;
+constexpr uint32_t VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT = 0x00000080;
+constexpr uint32_t VK_PIPELINE_STAGE_TRANSFER_BIT = 0x00001000;
+constexpr uint32_t VK_ACCESS_SHADER_READ_BIT = 0x00000020;
+constexpr uint32_t VK_ACCESS_TRANSFER_WRITE_BIT = 0x00001000;
+constexpr uint32_t VK_ACCESS_HOST_WRITE_BIT = 0x00004000;
+constexpr uint32_t VK_QUEUE_FAMILY_IGNORED = 0xFFFFFFFFu;
+constexpr uint32_t VK_IMAGE_TILING_LINEAR = 1;
+constexpr uint32_t VK_IMAGE_LAYOUT_PREINITIALIZED = 8;
+constexpr uint32_t VK_PIPELINE_STAGE_HOST_BIT = 0x00004000;
 
 // Vulkan limits used when decoding VkPhysicalDeviceProperties.
 constexpr uint32_t VK_MAX_PHYSICAL_DEVICE_NAME_SIZE = 256;
@@ -364,6 +395,39 @@ public:
     // Returns true if the whole pipeline ran and the readback is non-empty.
     bool renderTriangle(uint32_t width, uint32_t height, uint32_t* outBGRA, uint32_t outCapWords);
 
+    // Renders a textured quad: uploads `srcBGRA` (srcW x srcH, tightly packed)
+    // into a sampled GPU texture, draws a fullscreen quad sampling it into an
+    // offscreen VK_FORMAT_B8G8R8A8_UNORM target of width x height, then reads the
+    // result back into `outBGRA`. This exercises the sampler / sampled-image /
+    // buffer->image upload / combined-image-sampler descriptor path used by the
+    // GPU compositor. Returns true if the pipeline ran and readback is non-empty.
+    bool renderTexturedQuad(uint32_t width, uint32_t height,
+                            const uint32_t* srcBGRA, uint32_t srcW, uint32_t srcH,
+                            uint32_t dstX, uint32_t dstY, uint32_t dstW, uint32_t dstH,
+                            uint32_t* outBGRA, uint32_t outCapWords);
+
+    // One layer for compositeLayers(): a BGRA source image (tightly packed,
+    // srcW*srcH) drawn into the destination rect (pixels). Alpha-blended in the
+    // order given (painter's algorithm), so put background first, cursor last.
+    struct Layer {
+        const uint32_t* pixels;
+        uint32_t srcW;
+        uint32_t srcH;
+        uint32_t dstX;
+        uint32_t dstY;
+        uint32_t dstW;
+        uint32_t dstH;
+    };
+    static constexpr uint32_t kMaxLayers = 16;
+
+    // GPU-composite `layerCount` layers onto a `clearColor` background into a
+    // targetW x targetH BGRA image, then read the result back into `outBGRA`.
+    // This is the compositor's core operation (each layer = a window/chrome
+    // texture at its screen rect). Returns true if the pipeline ran.
+    bool compositeLayers(uint32_t targetW, uint32_t targetH, uint32_t clearColor,
+                         const Layer* layers, uint32_t layerCount,
+                         uint32_t* outBGRA, uint32_t outCapWords);
+
     // Tear down device, instance, ring, and context.
     void shutdown();
 
@@ -480,6 +544,22 @@ public:
     // render + present succeeded. `size` is the square render target edge.
     bool renderTriangleToScreen(uint32_t size = 480);
 
+    // Uploads a generated test texture and renders it as a GPU textured quad,
+    // blitting the result centered onto the virtio-gpu framebuffer + flushing.
+    // Proves the Venus texturing path (sampler / sampled image / buffer->image
+    // upload / combined-image-sampler descriptors) that GPU compositing needs.
+    bool renderTexturedQuadToScreen(uint32_t size = 480);
+
+    // GPU-composite `layers` (in order) onto the framebuffer and present. Uses a
+    // persistent Vulkan session (created once, reused across calls) so per-frame
+    // compositing does not repeat the expensive instance/device/context bring-up.
+    // This is the mechanism the userland compositor drives via sys_gpu_composite.
+    bool compositeToScreen(const VulkanSession::Layer* layers, uint32_t layerCount);
+
+    // Boot demo: composite a couple of generated test layers (background + a
+    // checkerboard "window") and present, to validate the compositing path.
+    bool compositeDemoToScreen();
+
     // Lower-level building blocks (also used by the syscall surface):
 
     // Creates a Venus context. Writes the context id to *outCtxId.
@@ -506,6 +586,9 @@ private:
     bool available_ = false;
     bool negotiated_ = false;
     VirtIOGPUVenusCapset capset_ = {};
+
+    // Persistent compositing session (lazily created by compositeToScreen).
+    VulkanSession* compositeSession_ = nullptr;
 };
 
 } // namespace venus

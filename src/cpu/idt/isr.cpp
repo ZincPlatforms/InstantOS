@@ -246,15 +246,42 @@ void ISR::registerIRQ(uint8_t vector, Interrupt* handler) {
     handler->initialize();
 }
 
+// Extended (FPU/SSE/AVX) state must be preserved around IRQ handlers because
+// handlers freely use vector registers (e.g. the SIMD memcpy/memset in
+// common/string.cpp). For a *user-mode* interruption we save into the
+// interrupted process's userFpuState. For a *kernel-mode* interruption there is
+// no process area to borrow, so we save into a small nesting-indexed scratch
+// pool. Without this, an IRQ landing inside kernel code that has live XMM/YMM
+// (e.g. a kernel thread doing floating-point pixel math) is silently corrupted.
+// IRQ gates run with IF=0 so nesting is normally absent; the depth index keeps
+// this correct even if a handler re-enables interrupts.
+namespace {
+constexpr int kMaxKernelIrqFpuDepth = 4;
+alignas(64) FPUState kernelIrqFpuScratch[kMaxKernelIrqFpuDepth];
+int kernelIrqFpuDepth = 0;
+}  // namespace
+
 extern "C" void irqHandler(InterruptFrame* frame) {
     if (frame == nullptr) {
         LAPIC::get().sendEOI();
         return;
     }
 
-    Process* current = (frame->cs == 0x23) ? Scheduler::get().getCurrentProcess() : nullptr;
-    if (current && current->userFpuState) {
-        CPU::saveExtendedState(current->userFpuState);
+    const bool interruptedUser = (frame->cs == 0x23);
+    Process* current = interruptedUser ? Scheduler::get().getCurrentProcess() : nullptr;
+
+    FPUState* fpuSave = nullptr;
+    if (interruptedUser) {
+        fpuSave = current ? current->userFpuState : nullptr;
+    } else {
+        if (kernelIrqFpuDepth < kMaxKernelIrqFpuDepth) {
+            fpuSave = &kernelIrqFpuScratch[kernelIrqFpuDepth];
+        }
+        ++kernelIrqFpuDepth;  // increment even when over cap to balance the decrement
+    }
+
+    if (fpuSave) {
+        CPU::saveExtendedState(fpuSave);
     }
 
     Interrupt* handler = interruptHandlers[frame->interrupt];
@@ -264,7 +291,10 @@ extern "C" void irqHandler(InterruptFrame* frame) {
         LAPIC::get().sendEOI();
     }
 
-    if (current && current->userFpuState) {
-        CPU::restoreExtendedState(current->userFpuState);
+    if (fpuSave) {
+        CPU::restoreExtendedState(fpuSave);
+    }
+    if (!interruptedUser) {
+        --kernelIrqFpuDepth;
     }
 }
