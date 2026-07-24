@@ -1,11 +1,9 @@
-#include <stdint.h>
+#include <graphics/bsod.hpp>
 
-struct DrawPixel {
-	uint32_t amountOf;
-	uint32_t pixel;
-};
-
-constexpr DrawPixel bsod[] = {
+// Auto-generated run-length-encoded pixel data for the bug-check (BSOD)
+// screen. Each entry is {run length, 0x00RRGGBB pixel}. This is data only;
+// the DrawPixel definition and the bsodPixelCount accessor live in bsod.hpp.
+const DrawPixel bsod[] = {
 	{153788, 0}, {8, 31448}, {1271, 0}, {1, 31448}, {1, 30423}, {5, 30167}, {1, 30423}, {1, 30167}, {1, 30680}, {1269, 0}, 
 	{1, 31448}, {1, 30423}, {1, 1542364}, {1, 1673693}, {4, 1673692}, {1, 1542364}, {1, 1870813}, {1, 360666}, {1, 30936}, {1267, 0}, 
 	{1, 31705}, {1, 29142}, {1, 6401511}, {1, 15201019}, {1, 14741498}, {2, 14807034}, {1, 14807290}, {1, 14675705}, {1, 15332347}, {1, 13033973}, 
@@ -3898,3 +3896,5 @@ constexpr DrawPixel bsod[] = {
 	{4, 0}, {1, 31448}, {2, 0}, {1, 30936}, {4, 30679}, {12, 0}, {2, 31448}, {3, 0}, {1, 31448}, {1028, 0}, 
 	{1, 31705}, {73, 31961}, {1, 31705}, {1, 31961}, {1, 31705}, {28, 0}, {2, 30679}, {76, 0}, {3, 31448}, {44, 0}, 
 	{3, 31448}, {1152, 0}, {2, 31448}, {221194, 0}, };
+
+const size_t bsodPixelCount = sizeof(bsod) / sizeof(bsod[0]);
