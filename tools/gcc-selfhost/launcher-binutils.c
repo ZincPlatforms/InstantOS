@@ -4,7 +4,7 @@
 // the initrd (/bin: sh make sed grep tar gzip awk cmp + coreutils) rebuild GNU
 // binutils-2.42 from source, ON InstantOS:
 //
-//   untar    : gzip -dc /bin/binutils-insrc.tar.gz | tar -x  -> /tmp/binutils-2.42
+//   untar    : gzip -dc /bin/binutils-insrc.tar.gz | tar -x  -> /work/binutils-2.42
 //   configure: native (build=host=target=x86_64-unknown-instantos); huge sh/sed/
 //              grep/awk/expr + gcc compile+link probe pass across bfd/opcodes/gas/ld
 //   make     : compile the whole tree with the in-OS gcc -> gas/as-new, ld/ld-new
@@ -86,20 +86,21 @@ static void dump_file(const char* path){
 // gcc + as/ar/ranlib on the ext4 (/usr/bin); the GNU userland ports on the
 // initrd (/bin). Both on PATH so configure/make find every tool.
 static const char* const ENVP[]={
-    "PATH=/usr/bin:/bin","HOME=/","TMPDIR=/tmp","SHELL=/bin/sh","CONFIG_SHELL=/bin/sh",
+    "PATH=/usr/bin:/bin","HOME=/","TMPDIR=/work/tmp","SHELL=/bin/sh","CONFIG_SHELL=/bin/sh",
     "MAKEINFO=true","LC_ALL=C","LANG=C",0
 };
 
 static const char* const ARGV_UNTAR[] = {"sh","-c",
-    "gzip -dc /bin/binutils-insrc.tar.gz | tar -x -C /tmp",0};
+    "gzip -dc /bin/binutils-insrc.tar.gz | tar -x -C /work",0};
 static const char* const ARGV_CONFIGURE[] = {"sh","-c",
-    "cd /tmp/bu-build && /tmp/binutils-2.42/configure "
+    "cd /work/bu-build && /work/binutils-2.42/configure "
     "--host=x86_64-unknown-instantos --build=x86_64-unknown-instantos "
     "--target=x86_64-unknown-instantos --prefix=/usr --disable-nls --disable-werror "
     "--without-zstd --without-debuginfod --without-msgpack --disable-gdb --disable-gold "
-    "--disable-gprofng --disable-libctf --disable-plugins --enable-default-hash-style=sysv",0};
+    "--disable-gprofng --disable-libctf --disable-plugins --without-isl --disable-lto "
+    "--disable-bootstrap --enable-default-hash-style=sysv",0};
 static const char* const ARGV_MAKE[] = {"sh","-c",
-    "cd /tmp/bu-build && make -j2 MAKEINFO=true all-gas all-ld all-binutils",0};
+    "cd /work/bu-build && make -j2 MAKEINFO=true all-gas all-ld all-binutils",0};
 static const char* const ARGV_AS_V[] = {"as-new","--version",0};
 static const char* const ARGV_LD_V[] = {"ld-new","--version",0};
 
@@ -124,7 +125,7 @@ static void repro_bug4(void){
 }
 
 // --- EXEC DIAG: why do freshly-linked binaries fail to run? -------------------
-#define REPRO_EXEC 1
+#define REPRO_EXEC 0
 static void inspect_elf(const char* path){
     serial("[EXEC] inspect "); serial(path); serial("\n");
     i64 fd=(i64)sc3(SYS_OPEN,(u64)path,O_RDONLY,0);
@@ -186,33 +187,35 @@ void _start(void){
     repro_bug4();
 #endif
 
+    sc3(SYS_MKDIR,(u64)"/work",0755,0);
+    sc3(SYS_MKDIR,(u64)"/work/tmp",0755,0);
+    sc3(SYS_MKDIR,(u64)"/work/bu-build",0755,0);
     serial("[GCCSELF] untar binutils-2.42 source\n");
     i64 rc = spawn_wait("/bin/sh", ARGV_UNTAR, ENVP);
     serial("GCCSELF_BU_UNTAR_RC="); put_dec(rc); serial("\n");
-    int untar_ok = file_exists("/tmp/binutils-2.42/configure");
+    int untar_ok = file_exists("/work/binutils-2.42/configure");
     serial(untar_ok ? "GCCSELF_BU_UNTAR_OK\n" : "GCCSELF_BU_UNTAR_FAIL\n");
 
-    sc3(SYS_MKDIR,(u64)"/tmp/bu-build",0755,0);
     serial("[GCCSELF] configure (native instantos; sh+sed+grep+awk+gcc probes)\n");
     rc = spawn_wait("/bin/sh", ARGV_CONFIGURE, ENVP);
     serial("GCCSELF_BU_CONFIGURE_RC="); put_dec(rc); serial("\n");
-    int cfg_ok = file_exists("/tmp/bu-build/Makefile") && file_exists("/tmp/bu-build/gas/Makefile")
-              && file_exists("/tmp/bu-build/ld/Makefile");
+    int cfg_ok = file_exists("/work/bu-build/Makefile") && file_exists("/work/bu-build/gas/Makefile")
+              && file_exists("/work/bu-build/ld/Makefile");
     serial(cfg_ok ? "GCCSELF_BU_CONFIGURE_OK\n" : "GCCSELF_BU_CONFIGURE_FAIL\n");
-    if(!cfg_ok) dump_file("/tmp/bu-build/config.log");
+    if(!cfg_ok) dump_file("/work/bu-build/config.log");
 
     serial("[GCCSELF] make (in-OS gcc compiles bfd/opcodes/gas/ld/binutils)\n");
     rc = spawn_wait("/bin/sh", ARGV_MAKE, ENVP);
     serial("GCCSELF_BU_MAKE_RC="); put_dec(rc); serial("\n");
-    int as_elf = is_elf("/tmp/bu-build/gas/as-new");
-    int ld_elf = is_elf("/tmp/bu-build/ld/ld-new");
+    int as_elf = is_elf("/work/bu-build/gas/as-new");
+    int ld_elf = is_elf("/work/bu-build/ld/ld-new");
     serial(as_elf ? "GCCSELF_BU_AS_ELF_OK\n" : "GCCSELF_BU_AS_ELF_BAD\n");
     serial(ld_elf ? "GCCSELF_BU_LD_ELF_OK\n" : "GCCSELF_BU_LD_ELF_BAD\n");
 
     i64 as_run = -1, ld_run = -1;
-    if(as_elf){ as_run = spawn_wait("/tmp/bu-build/gas/as-new", ARGV_AS_V, ENVP);
+    if(as_elf){ as_run = spawn_wait("/work/bu-build/gas/as-new", ARGV_AS_V, ENVP);
         serial("GCCSELF_BU_AS_RUN_RC="); put_dec(as_run); serial("\n"); }
-    if(ld_elf){ ld_run = spawn_wait("/tmp/bu-build/ld/ld-new", ARGV_LD_V, ENVP);
+    if(ld_elf){ ld_run = spawn_wait("/work/bu-build/ld/ld-new", ARGV_LD_V, ENVP);
         serial("GCCSELF_BU_LD_RUN_RC="); put_dec(ld_run); serial("\n"); }
     if(as_elf && exit_code(as_run)==0) serial("GCCSELF_BU_AS_OK\n");
     if(ld_elf && exit_code(ld_run)==0) serial("GCCSELF_BU_LD_OK\n");
